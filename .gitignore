@@ -1,0 +1,15 @@
+.build/
+.build-release/
+.swiftpm/
+dist/
+.DS_Store
+client_secret*.json
+*.p12
+*.p8
+*.key
+
+# Machine-specific configuration must never be published.
+.env
+.env.*
+!.env.example
+*.local

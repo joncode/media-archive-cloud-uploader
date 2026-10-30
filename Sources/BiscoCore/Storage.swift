@@ -5,20 +5,25 @@ public protocol HTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
 }
 
-public final class SecureHTTP: NSObject, HTTPTransport, URLSessionTaskDelegate, @unchecked Sendable {
-    private lazy var session: URLSession = {
+private final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+}
+
+public final class SecureHTTP: HTTPTransport, @unchecked Sendable {
+    private let session: URLSession
+    public init() {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 120
         config.timeoutIntervalForResource = 600
         config.httpCookieStorage = nil
         config.urlCache = nil
-        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
-    }()
-    public override init() { super.init(); _ = session }
-    // Never forward a token or upload capability to a redirect target. GCS's 308 is an upload status.
-    public func urlSession(_ session: URLSession, task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+        session = URLSession(configuration: config, delegate: NoRedirectDelegate(), delegateQueue: nil)
+    }
+    deinit { session.invalidateAndCancel() }
+    // The separate delegate prevents a URLSession -> client -> URLSession retain cycle.
+    // Redirects are refused so tokens and resumable capabilities stay on their original host.
     public func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         do {
             let (data, response) = try await session.data(for: request)
@@ -40,6 +45,7 @@ public struct NetworkFailure: LocalizedError {
 
 public struct ServiceFailure: LocalizedError {
     public let status: Int
+    public init(status: Int) { self.status = status }
     public var errorDescription: String? {
         switch status {
         case 401: return "Google login expired. Sign in again, then retry."
@@ -47,7 +53,7 @@ public struct ServiceFailure: LocalizedError {
         case 400: return "Google rejected the request or checksum. Preview the source again; check the project and bucket configuration."
         case 404: return "Bucket or upload session not found. Check access and retry."
         case 429: return "Google is limiting requests. Wait a moment, then retry."
-        default: return "Google Storage returned HTTP \(status). Retry; contact the administrator if it persists."
+        default: return "Google returned HTTP \(status). Retry; contact the administrator if it persists."
         }
     }
     var retryable: Bool { status == 408 || status == 429 || (500...599).contains(status) }
@@ -57,6 +63,7 @@ public protocol SecretStore: Sendable {
     func read(_ key: String) throws -> Data?
     func write(_ key: String, data: Data) throws
     func remove(_ key: String) throws
+    func clearUploads() throws
 }
 
 public struct UploadCheckpoint: Codable, Sendable {
@@ -98,6 +105,8 @@ public actor StorageClient {
         var c = URLComponents(string: "https://storage.googleapis.com/upload/storage/v1/b/\(bucket)/o")!
         c.queryItems = [URLQueryItem(name: "uploadType", value: "resumable"),
                        URLQueryItem(name: "name", value: name), URLQueryItem(name: "ifGenerationMatch", value: "0")]
+        // '+' is legal in RFC 3986 queries, but form-style query parsers treat it as a space.
+        c.percentEncodedQuery = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         return c.url!
     }
     public func validSession(_ url: URL) -> Bool {
@@ -164,9 +173,9 @@ public actor StorageClient {
         let digest = try Digests.read(item, handle: handle)
         var checkpoint: UploadCheckpoint?
         if let data = try store.read(key) {
-            let saved = try JSONDecoder().decode(UploadCheckpoint.self, from: data)
-            if saved.digest == digest.sha256 && saved.size == item.size &&
-                Date().timeIntervalSince(saved.created) < 6 * 86400 && validSession(saved.session) {
+            if let saved = try? JSONDecoder().decode(UploadCheckpoint.self, from: data),
+                saved.digest == digest.sha256 && saved.size == item.size &&
+                (0..<(6 * 86400)).contains(Date().timeIntervalSince(saved.created)) && validSession(saved.session) {
                 checkpoint = saved
             } else { try store.remove(key) }
         }
@@ -226,6 +235,9 @@ public actor StorageClient {
                 case 308:
                     let next = try Self.acknowledgedOffset(response, total: item.size)
                     if !mustQuery && next <= offset { throw ServiceFailure(status: 503) }
+                    if !mustQuery && next > offset + Int64(req.httpBody?.count ?? 0) {
+                        throw ArchiveError("Google acknowledged bytes that were not sent. Retry to recheck the upload session.")
+                    }
                     guard next >= offset else { throw ArchiveError("Google’s upload offset moved backwards. Retry to recheck the session.") }
                     offset = next; mustQuery = false
                     await progress(UploadProgress(bytes: offset, message: "Uploading…"))

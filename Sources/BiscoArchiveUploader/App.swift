@@ -27,20 +27,24 @@ struct FileRow: Identifiable {
     @Published var activity = ""
     @Published var transferred: Int64 = 0
     @Published var started: Date?
-    let login = GoogleLogin()
+    let login: GoogleLogin
     private var job: Task<Void, Never>?
     @Published var configuration: ArchiveConfiguration?
     private var storage: StorageClient?
-    init() { reloadConfiguration() }
+    init(login: GoogleLogin? = nil, loadConfiguration: Bool = true) {
+        self.login = login ?? GoogleLogin()
+        if loadConfiguration { reloadConfiguration() }
+    }
+    func applyConfiguration(_ value: ArchiveConfiguration) throws {
+        let client = try StorageClient(bucket: value.bucket, store: KeychainStore(), token: { [login] force in
+            try await login.token(forceRefresh: force)
+        })
+        configuration = value; storage = client; folder = value.sourceFolder
+        invalidate(); message = "Choose or review the source folder, then preview."
+    }
     func reloadConfiguration() {
-        do {
-            let value = try ArchiveConfiguration.load()
-            let client = try StorageClient(bucket: value.bucket, store: KeychainStore(), token: { [login] force in
-                try await login.token(forceRefresh: force)
-            })
-            configuration = value; storage = client; folder = value.sourceFolder
-            invalidate(); message = "Choose or review the source folder, then preview."
-        } catch {
+        do { try applyConfiguration(ArchiveConfiguration.load()) }
+        catch {
             configuration = nil; storage = nil; folder = nil; invalidate()
             message = error.localizedDescription
         }
@@ -51,11 +55,12 @@ struct FileRow: Identifiable {
         panel.message = "Choose the local .env file supplied by your archive administrator. It sets the destination bucket and optional source folder."
         if panel.runModal() == .OK, let url = panel.url {
             do {
-                try ArchiveConfiguration.saveImported(String(contentsOf: url, encoding: .utf8))
+                try ArchiveConfiguration.saveImported(LocalInput.text(url))
                 reloadConfiguration()
             } catch { self.error = error.localizedDescription }
         }
     }
+    var canExportReport: Bool { !rows.isEmpty || !excluded.isEmpty || !issues.isEmpty }
     var totalBytes: Int64 { rows.reduce(0) { $0 + $1.item.size } }
     var accountedBytes: Int64 { rows.reduce(0) { $0 + ($1.finished ? $1.item.size : $1.bytes) } }
     var finishedCount: Int { rows.filter(\.finished).count }
@@ -115,6 +120,7 @@ struct FileRow: Identifiable {
                             rows[index].status = "Check failed"; rows[index].failed = true
                             rows[index].detail = error.localizedDescription
                             // A global authorization problem should not trigger thousands of repeated requests.
+                            if error is AuthenticationFailure { throw error }
                             if let failure = error as? ServiceFailure, [401, 403].contains(failure.status) { throw error }
                         }
                     }
@@ -149,6 +155,7 @@ struct FileRow: Identifiable {
                     if Task.isCancelled { rows[index].status = "Paused — resume available"; break }
                     rows[index].failed = true; rows[index].status = "Needs retry"
                     rows[index].detail = error.localizedDescription
+                    if error is AuthenticationFailure { self.error = error.localizedDescription; break }
                     if let failure = error as? ServiceFailure, [401, 403].contains(failure.status) { self.error = error.localizedDescription; break }
                 }
             }
@@ -184,6 +191,7 @@ struct LoginBar: View {
                 .foregroundStyle(login.email.isEmpty ? Color.secondary : Color.teal).font(.title2)
             VStack(alignment: .leading, spacing: 3) {
                 Text(login.email.isEmpty ? "Connect your Google account" : login.email).fontWeight(.medium)
+                if let issue = login.storageIssue { Text(issue).font(.caption).foregroundStyle(.orange) }
                 Text(login.configured ? "Your account · credentials stored in macOS Keychain" : "One-time setup: import your Google Desktop app configuration")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -264,7 +272,7 @@ struct ContentView: View {
                 }
             }
             HStack {
-                Button("Export report…", action: model.exportReport).disabled(model.rows.isEmpty || model.busy)
+                Button("Export report…", action: model.exportReport).disabled(!model.canExportReport || model.busy)
                 Spacer()
                 if model.busy {
                     Button("Cancel", role: .cancel, action: model.cancel).keyboardShortcut(.cancelAction)

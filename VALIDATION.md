@@ -1,4 +1,8 @@
-# Validation record — October 29, 2026
+# Validation record
+
+Current review: [REVIEW.md](REVIEW.md), October 30, 2026. The expanded suite passes 42 tests on Xcode 27.2; see TESTING.md for the live checks still required.
+
+## Initial validation — October 29, 2026
 
 ## Verified here
 

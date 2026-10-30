@@ -9,6 +9,35 @@ public struct ArchiveError: LocalizedError, Sendable {
     public var errorDescription: String? { message }
 }
 
+public struct AuthenticationFailure: LocalizedError, Sendable {
+    public let message: String
+    public init(_ message: String) { self.message = message }
+    public var errorDescription: String? { message }
+}
+
+// Configuration imports must not load arbitrarily large files or block on pipes/devices.
+public enum LocalInput {
+    public static func read(_ url: URL, maximumBytes: Int = 65536) throws -> Data {
+        let fd = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard fd >= 0 else { throw ArchiveError("Cannot read this configuration file. Choose a local, regular file rather than a symbolic link.") }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? handle.close() }
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_size <= maximumBytes else {
+            throw ArchiveError("Choose a regular configuration file no larger than 64 KiB.")
+        }
+        let data = try handle.read(upToCount: maximumBytes + 1) ?? Data()
+        guard data.count <= maximumBytes else { throw ArchiveError("The configuration file is too large.") }
+        return data
+    }
+    public static func text(_ url: URL) throws -> String {
+        guard let value = String(data: try read(url), encoding: .utf8) else {
+            throw ArchiveError("The configuration file must contain UTF-8 text.")
+        }
+        return value
+    }
+}
+
 public struct FileStamp: Codable, Equatable, Sendable {
     public let size: Int64
     let device: Int32
@@ -73,6 +102,10 @@ public struct ScanReport: Sendable {
 public enum AudioScanner {
     public static func scan(folder: URL, includeFolder: Bool) throws -> ScanReport {
         let root = folder.resolvingSymlinksInPath().standardizedFileURL
+        guard (try? root.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+              FileManager.default.isReadableFile(atPath: root.path) else {
+            throw ArchiveError("The source folder is missing or unreadable. Connect the drive or choose another folder.")
+        }
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
         var report = ScanReport()
         guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,

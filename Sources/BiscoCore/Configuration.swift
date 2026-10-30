@@ -65,16 +65,17 @@ public struct ArchiveConfiguration: Equatable, Sendable {
         } else { file = savedFile }
         var values: [String: String] = [:]
         if FileManager.default.fileExists(atPath: file.path) {
-            values = try parse(String(contentsOf: file, encoding: .utf8))
+            values = try parse(LocalInput.text(file))
         }
         return try ArchiveConfiguration(environment: environment, fileValues: values)
     }
-    public static func saveImported(_ text: String) throws {
+    public static func saveImported(_ text: String, to file: URL = savedFile) throws {
         let values = try parse(text)
         _ = try ArchiveConfiguration(environment: [:], fileValues: values)
-        let file = savedFile
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
+        // Protect the directory before creating/replacing the file, including on an existing install.
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.deletingLastPathComponent().path)
         try text.write(to: file, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }

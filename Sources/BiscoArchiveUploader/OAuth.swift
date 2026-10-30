@@ -23,15 +23,17 @@ private struct TokenResponse: Decodable {
     @Published var email = ""
     @Published var configured = false
     @Published var busy = false
-    private let store = KeychainStore()
-    private let http = SecureHTTP()
+    @Published var storageIssue: String?
+    private let store: SecretStore
+    private let http: HTTPTransport
     private var client: OAuthClient?
     private var saved: SavedLogin?
     private var accessToken: String?
     private var expiry = Date.distantPast
     private var callback: LoopbackLogin?
 
-    init() {
+    init(store: SecretStore = KeychainStore(), http: HTTPTransport = SecureHTTP()) {
+        self.store = store; self.http = http
         do {
             if let data = try store.read("oauth-client") {
                 client = try JSONDecoder().decode(OAuthClient.self, from: data); configured = true
@@ -39,10 +41,10 @@ private struct TokenResponse: Decodable {
             if let data = try store.read("oauth-login") {
                 saved = try JSONDecoder().decode(SavedLogin.self, from: data); email = saved!.email
             }
-        } catch { /* Actions surface Keychain errors; startup remains usable for local previews. */ }
+        } catch { storageIssue = error.localizedDescription }
     }
     func importClient(_ url: URL) throws {
-        let data = try Data(contentsOf: url)
+        let data = try LocalInput.read(url)
         guard data.count < 64 * 1024 else { throw ArchiveError("Choose the small Desktop app OAuth JSON file from Google Cloud.") }
         let imported: OAuthClient
         do { imported = try JSONDecoder().decode(ClientFile.self, from: data).installed }
@@ -52,7 +54,7 @@ private struct TokenResponse: Decodable {
         }
         try signOut()
         try store.write("oauth-client", data: JSONEncoder().encode(imported))
-        client = imported; configured = true
+        client = imported; configured = true; storageIssue = nil
     }
     static func random() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
@@ -78,9 +80,16 @@ private struct TokenResponse: Decodable {
         req.httpBody = Self.form(values)
         let (data, response) = try await http.send(req)
         guard response.statusCode == 200 else {
-            throw ArchiveError("Google could not authorize this login (HTTP \(response.statusCode)). Sign in again; check the Desktop client and consent-screen test users if it persists.")
+            if [408, 429].contains(response.statusCode) || (500...599).contains(response.statusCode) {
+                throw ServiceFailure(status: response.statusCode)
+            }
+            throw AuthenticationFailure("Google could not authorize this login (HTTP \(response.statusCode)). Sign in again; check the Desktop client and consent-screen test users if it persists.")
         }
-        return try JSONDecoder().decode(TokenResponse.self, from: data)
+        guard let result = try? JSONDecoder().decode(TokenResponse.self, from: data),
+              !result.access_token.isEmpty, result.expires_in.isFinite, result.expires_in > 0 else {
+            throw AuthenticationFailure("Google returned incomplete login information. Sign in again.")
+        }
+        return result
     }
     func signIn() async throws {
         guard let client else { throw ArchiveError("Import the Google Desktop app configuration first.") }
@@ -123,17 +132,23 @@ private struct TokenResponse: Decodable {
     }
     func token(forceRefresh: Bool) async throws -> String {
         if !forceRefresh, let accessToken, expiry > Date() { return accessToken }
-        guard let client, let saved else { throw ArchiveError("Sign in to Google before checking or uploading.") }
+        guard let client, let saved else { throw AuthenticationFailure("Sign in to Google before checking or uploading.") }
         var values = ["client_id": client.client_id, "refresh_token": saved.refreshToken, "grant_type": "refresh_token"]
         values["client_secret"] = client.client_secret
         let result = try await exchange(values)
+        if let replacement = result.refresh_token {
+            let updated = SavedLogin(refreshToken: replacement, email: saved.email)
+            try store.write("oauth-login", data: JSONEncoder().encode(updated))
+            self.saved = updated
+        }
         accessToken = result.access_token; expiry = Date().addingTimeInterval(result.expires_in - 60)
         return result.access_token
     }
     func cancel() { callback?.stop() }
     func signOut() throws {
+        // Even a locked Keychain must not leave a usable login in memory after Sign out.
+        defer { saved = nil; email = ""; accessToken = nil; expiry = .distantPast }
         try store.remove("oauth-login"); try store.clearUploads()
-        saved = nil; email = ""; accessToken = nil; expiry = .distantPast
     }
 }
 
@@ -153,41 +168,54 @@ private struct TokenResponse: Decodable {
         listener = try NWListener(using: params)
     }
     func start() async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            startWaiter = continuation
-            listener.stateUpdateHandler = { [weak self] update in
-                Task { @MainActor in
-                    guard let self else { return }
-                    switch update {
-                    case .ready:
-                        guard let port = self.listener.port else { self.stop(); return }
-                        self.startWaiter?.resume(returning: "http://127.0.0.1:\(port.rawValue)/oauth/callback")
-                        self.startWaiter = nil
-                    case .failed: self.finish(.failure(ArchiveError("Could not listen for Google login on this Mac.")))
-                    default: break
+        try Task.checkCancellation()
+        if let result { return try result.get() }
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                startWaiter = continuation
+                listener.stateUpdateHandler = { [weak self] update in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        switch update {
+                        case .ready:
+                            guard let port = self.listener.port else { self.stop(); return }
+                            self.startWaiter?.resume(returning: "http://127.0.0.1:\(port.rawValue)/oauth/callback")
+                            self.startWaiter = nil
+                        case .failed: self.finish(.failure(ArchiveError("Could not listen for Google login on this Mac.")))
+                        default: break
+                        }
                     }
                 }
+                listener.newConnectionHandler = { [weak self] connection in
+                    Task { @MainActor in self?.receive(connection) }
+                }
+                listener.start(queue: .main)
+                timer = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 180 * 1_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    self?.finish(.failure(ArchiveError("Google login timed out. Click Sign in to try again.")))
+                }
             }
-            listener.newConnectionHandler = { [weak self] connection in
-                Task { @MainActor in self?.receive(connection) }
-            }
-            listener.start(queue: .main)
-            timer = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 180 * 1_000_000_000)
-                guard !Task.isCancelled else { return }
-                self?.finish(.failure(ArchiveError("Google login timed out. Click Sign in to try again.")))
-            }
-        }
+        }, onCancel: { [weak self] in Task { @MainActor in self?.stop() } })
     }
     func code() async throws -> String {
+        try Task.checkCancellation()
         if let result { return try result.get() }
-        return try await withCheckedThrowingContinuation { codeWaiter = $0 }
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { codeWaiter = $0 }
+        }, onCancel: { [weak self] in Task { @MainActor in self?.stop() } })
     }
     func stop() { finish(.failure(CancellationError())) }
     private func finish(_ value: Result<String, Error>) {
         guard result == nil else { return }
         result = value
-        if let waiter = startWaiter { waiter.resume(throwing: (try? value.get()) == nil ? ArchiveError("Login cancelled or unavailable.") : ArchiveError("Unexpected login response.")); startWaiter = nil }
+        if let waiter = startWaiter {
+            switch value {
+            case .failure(let error): waiter.resume(throwing: error)
+            case .success: waiter.resume(throwing: ArchiveError("Unexpected login response."))
+            }
+            startWaiter = nil
+        }
         codeWaiter?.resume(with: value); codeWaiter = nil
         timer?.cancel(); listener.cancel()
         for connection in connections { connection.cancel() }

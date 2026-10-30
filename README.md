@@ -2,6 +2,8 @@
 
 A native SwiftUI macOS app for uploading FOH recordings to a Google Cloud Storage bucket configured locally. The selected folder’s **contents go to the bucket root by default**, as explicitly requested. A visible switch can include the selected folder’s name.
 
+Start with [TESTING.md](TESTING.md) for the first controlled trial and [REVIEW.md](REVIEW.md) for current findings and limits.
+
 Read [QUICK-START.md](QUICK-START.md) for the engineer’s workflow and [RELEASE.md](RELEASE.md) for packaging. [VALIDATION.md](VALIDATION.md) records what was actually tested and what still needs a real account.
 
 ## What is implemented
@@ -69,11 +71,10 @@ Requirements: Xcode with the macOS SDK and Swift 6 or newer. The package has no 
 
 ```bash
 bash scripts/test.sh
-bash scripts/build.sh
-bash scripts/package.sh
+bash scripts/distribute.sh
 ```
 
-`build.sh` creates a universal Apple silicon/Intel app and ad-hoc signs it unless `SIGNING_IDENTITY` is set. Output defaults to `dist/`; `BUILD_ROOT` and `DIST_DIR` can point elsewhere. On cloud-synced folders, keeping build intermediates in a local temporary folder avoids inherited Finder metadata affecting code signing. The scripts clear extended attributes only on their generated app bundle before signing.
+`distribute.sh` runs the build and verified packaging steps and puts the DMG in `dist/`. `build.sh` creates a universal Apple silicon/Intel app and ad-hoc signs it unless `SIGNING_IDENTITY` is set. Output defaults to `dist/`; `BUILD_ROOT` and `DIST_DIR` can point elsewhere. On cloud-synced folders, keeping build intermediates in a local temporary folder avoids inherited Finder metadata affecting code signing. The scripts clear extended attributes only on their generated app bundle before signing.
 
 The scripts use SwiftPM’s `native` build engine, supported by the tested toolchain but deprecated in Swift 6.4. When adopting a future toolchain that removes it, switch to the default engine and repeat the release checks. The default engine compiled the source here, but its test signing and debug-symbol generation were affected by this managed environment.
 

@@ -13,3 +13,6 @@ client_secret*.json
 .env.*
 !.env.example
 *.local
+
+# Exported reports can contain local paths and cloud object names.
+Bisco-upload-report*.txt

@@ -8,6 +8,10 @@ final class MemoryStore: SecretStore, @unchecked Sendable {
     func read(_ key: String) throws -> Data? { lock.lock(); defer { lock.unlock() }; return entries[key] }
     func write(_ key: String, data: Data) throws { lock.lock(); defer { lock.unlock() }; entries[key] = data }
     func remove(_ key: String) throws { lock.lock(); defer { lock.unlock() }; entries.removeValue(forKey: key) }
+    func clearUploads() throws {
+        lock.lock(); defer { lock.unlock() }
+        entries = entries.filter { !$0.key.hasPrefix("upload-") }
+    }
     var count: Int { lock.lock(); defer { lock.unlock() }; return entries.count }
 }
 

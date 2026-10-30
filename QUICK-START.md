@@ -1,5 +1,7 @@
 # Bisco Archive Uploader — engineer’s guide
 
+For the first trial, follow TESTING.md before attempting a large archive.
+
 Requires macOS 13 Ventura or later. The app supports Apple silicon and Intel Macs.
 
 ## Install and connect

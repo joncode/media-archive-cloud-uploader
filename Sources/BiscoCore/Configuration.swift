@@ -24,7 +24,7 @@ public struct ArchiveConfiguration: Equatable, Sendable {
         guard (3...222).contains(bucket.utf8.count),
               bucket.range(of: "^[a-z0-9][a-z0-9._-]*[a-z0-9]$", options: .regularExpression) != nil,
               bucket.split(separator: ".", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0.count <= 63 }) else {
-            throw ArchiveError("Set BISCO_GCS_BUCKET to your bucket name in the environment or import a local .env configuration. Use only the bucket name, without gs:// or a folder path.")
+            throw ArchiveError("Choose a valid bucket name. Use only the bucket name, without gs:// or a folder path.")
         }
     }
 

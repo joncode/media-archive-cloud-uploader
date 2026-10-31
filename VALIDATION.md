@@ -1,3 +1,9 @@
+# Update — October 31, 2026
+
+Version 1.1.0: 52 automated tests pass, including 10 new discovery/settings/file-selection regressions. See [REVIEW.md](REVIEW.md) and [TESTING.md](TESTING.md) for the new GUI setup and remaining live acceptance checks. Earlier records below describe previous builds.
+
+---
+
 # Validation record
 
 Current review: [REVIEW.md](REVIEW.md), October 30, 2026. The expanded suite passes 42 tests on Xcode 27.2; see TESTING.md for the live checks still required.

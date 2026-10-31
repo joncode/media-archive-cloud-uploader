@@ -129,23 +129,52 @@ public enum AudioScanner {
                     walk.skipDescendants(); report.excluded.append(relative + " — hidden or symbolic link"); continue
                 }
                 if info.isDirectory == true { continue }
-                guard info.isRegularFile == true,
-                      ["flac", "wav", "mp3"].contains(url.pathExtension.lowercased()) else {
-                    report.excluded.append(relative + " — not a supported audio file"); continue
-                }
                 let name = (includeFolder ? root.lastPathComponent + "/" : "") + relative
-                guard name.utf8.count <= 1024, !name.contains("\r"), !name.contains("\n") else {
-                    report.issues.append(relative + " — unsupported cloud object name"); continue
-                }
-                let stamp = try FileStamp.read(url)
-                guard stamp.size > 0, isAudio(url) else {
-                    report.excluded.append(relative + " — invalid or unreadable audio container"); continue
-                }
-                report.items.append(AudioItem(url: url, objectName: name, stamp: stamp))
+                try appendFile(url, name: name, report: &report)
             } catch { report.issues.append(relative + " — " + error.localizedDescription) }
         }
         report.items.sort { $0.objectName < $1.objectName }
         return report
+    }
+
+    /// Explicit file selections keep their filenames at the bucket root. Require one
+    /// containing folder so two unrelated tracks cannot silently map to the same object.
+    public static func scan(files: [URL]) throws -> ScanReport {
+        var report = ScanReport(), parent: URL?, seen = Set<String>()
+        for original in files {
+            try Task.checkCancellation()
+            let directory = original.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
+            if let parent, parent != directory {
+                throw ArchiveError("Choose files from one folder at a time, or use Choose folder to preserve a folder tree.")
+            }
+            parent = directory
+            let url = directory.appendingPathComponent(original.lastPathComponent)
+            guard seen.insert(url.path).inserted else { continue }
+            if url.pathComponents.contains(where: { $0.hasPrefix(".") && $0 != "/" }) {
+                report.excluded.append(url.lastPathComponent + " — hidden path"); continue
+            }
+            do { try appendFile(url, name: url.lastPathComponent, report: &report) }
+            catch { report.issues.append(url.lastPathComponent + " — " + error.localizedDescription) }
+        }
+        report.items.sort { $0.objectName < $1.objectName }
+        return report
+    }
+    private static func appendFile(_ url: URL, name: String, report: inout ScanReport) throws {
+        let info = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard info.isSymbolicLink != true, !url.lastPathComponent.hasPrefix(".") else {
+            report.excluded.append(name + " — hidden or symbolic link"); return
+        }
+        guard info.isRegularFile == true, ["flac", "wav", "mp3"].contains(url.pathExtension.lowercased()) else {
+            report.excluded.append(name + " — not a supported audio file"); return
+        }
+        guard name.utf8.count <= 1024, !name.contains("\r"), !name.contains("\n") else {
+            report.issues.append(name + " — unsupported cloud object name"); return
+        }
+        let stamp = try FileStamp.read(url)
+        guard stamp.size > 0, isAudio(url) else {
+            report.excluded.append(name + " — invalid or unreadable audio container"); return
+        }
+        report.items.append(AudioItem(url: url, objectName: name, stamp: stamp))
     }
 
     // The extension alone is not enough: require a matching audio container and nonempty audio data.

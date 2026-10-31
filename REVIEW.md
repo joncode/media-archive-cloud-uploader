@@ -1,3 +1,15 @@
+# GUI setup review — October 31, 2026
+
+Version 1.1.0 (build 3) replaces required environment-file setup with sign-in, bucket selection and Finder file/folder selection. `.env` is now an optional advanced import; existing private values are not changed or bundled.
+
+52 XCTest tests passed with zero failures. Ten new tests cover paginated project/bucket discovery, partial permission failures, token refresh on 401, transient retries, cancellation, repeated-page protection, explicit-file filtering, private settings persistence, account-bound destination restoration, guided first sign-in and persistence failure. The first restricted test invocation could not open localhost sockets; rerunning with local network access passed the real callback tests. All cloud listing responses in tests were simulated; no real Google account or bucket was accessed.
+
+The app requests Google's read-only project discovery scope in addition to its existing storage/email scopes. Automatic discovery needs Resource Manager enabled and project viewing/bucket listing permissions; a manual project/bucket fallback supports more restricted accounts. The picker never automatically chooses the first bucket. Changing destinations invalidates the preview; changing accounts clears the destination. Credentials remain in Keychain; settings use an owner-only Application Support JSON file.
+
+The release was compiled for Apple silicon and Intel. Live consent, actual project/bucket discovery under the user's IAM permissions, actual upload/resume and interactive testing on the engineer's Mac remain acceptance checks. This remains an ad-hoc signed, unnotarized test release.
+
+---
+
 # Review and test readiness — October 30, 2026
 
 Version 1.0.1 (build 2) is suitable for a small user trial, subject to Google OAuth/IAM setup. It is not yet validated for unattended production archives. No real account login, cloud upload, deletion or overwrite was performed during this review.

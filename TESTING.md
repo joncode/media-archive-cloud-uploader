@@ -1,4 +1,4 @@
-# First user test — 1.0.1
+# First user test — 1.1.0
 
 This build is ready for a controlled user trial. Automated tests and a code review have run; a real Google sign-in/upload still needs to be tested. Start with a few copied recordings. Keep your original recordings.
 
@@ -16,9 +16,9 @@ The `dist` directory is local and Git-ignored. Cloning or pulling the source fro
 ## Prepare once
 
 1. Open the DMG and drag the app to Applications. Open it there. This test build is ad-hoc signed and **not notarized**; for a trusted copy, use macOS’s per-app Open Anyway option if offered. Do not disable system security globally.
-2. In the app, choose **Setup → Import environment configuration (.env)…** and select your local repository `.env`. The picker shows hidden files. Your real values stay local; the public `.env.example` is empty.
-3. Choose **Setup → Import Google client JSON…**. This is a **Desktop app OAuth client** configuration from your Google Cloud project, not a service-account key. A Google Cloud account alone does not replace this app configuration. README.md explains how the administrator creates it and enables consent for the test user.
-4. Click **Sign in with Google**, complete browser consent, return to the app and verify the account email. The account needs create/get access to the destination bucket. If Google denies consent or bucket access, stop and correct setup.
+2. Click **Sign in with Google**. If this Mac has no app configuration, follow the setup sheet to choose a **Desktop app OAuth client JSON**, not a service-account key. Then sign in in your browser. Existing 1.0.1 users should sign out and sign back in to grant the additional read-only project discovery scope.
+3. Select the intended **Destination bucket**. Confirm the visible name. If automatic discovery fails, check Cloud Resource Manager API enablement and project/bucket listing permissions; use **Can’t find your bucket?** to search a project ID or enter a known bucket name. Do not assume an empty list means no accessible buckets exist.
+4. No `.env` import is required. The app saves choices privately on this Mac. Your older local `.env` remains untouched; explicit import is still available under Setup → Advanced.
 
 ## Test in this order
 
@@ -30,6 +30,14 @@ The `dist` directory is local and Git-ignored. Cloning or pulling the source fro
 6. **Report:** Export the final report and check errors and scan issues, not just the completion count. A folder containing only excluded files should also allow report export.
 
 Restore Include selected folder name to **off** for the original contents-at-bucket-root workflow when finished testing. The app never deletes test objects; any cleanup is an administrator decision.
+
+## New setup checks
+
+- Restart after choosing a destination/folder/prefix. Confirm they are remembered for the same account and no upload starts automatically.
+- Sign out or switch accounts. Confirm the destination clears and a fresh selection is required.
+- Choose individual files with another unselected audio file beside them. Preview must include only the selected valid audio files, at the bucket root by filename. Choose files from one folder at a time; use Choose folder for trees.
+- Check Refresh, a project with denied bucket-list access, and cancellation during discovery. Errors should be visible; other discoverable buckets should still appear.
+- Test Finder installation on the engineer’s Mac, including the guided first-login sheet. Using the packaged app requires no Xcode or Google CLI.
 
 ## Stop and report
 

@@ -106,7 +106,7 @@ private struct TokenResponse: Decodable {
             .init(name: "code_challenge", value: Self.base64url(Data(SHA256.hash(data: Data(verifier.utf8))))),
             .init(name: "code_challenge_method", value: "S256"), .init(name: "access_type", value: "offline"),
             .init(name: "prompt", value: "consent select_account"),
-            .init(name: "scope", value: "https://www.googleapis.com/auth/devstorage.read_write https://www.googleapis.com/auth/userinfo.email")
+            .init(name: "scope", value: "https://www.googleapis.com/auth/devstorage.read_write https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/cloudplatformprojects.readonly")
         ]
         guard NSWorkspace.shared.open(url.url!) else { throw ArchiveError("Could not open your browser for Google login.") }
         let code = try await receiver.code()

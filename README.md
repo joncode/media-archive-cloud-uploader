@@ -8,7 +8,7 @@ Read [QUICK-START.md](QUICK-START.md) for the engineer’s workflow and [RELEASE
 
 ## What is implemented
 
-- Native folder picker, Google browser login, account display and local sign-out.
+- Google browser login, automatic bucket discovery across visible projects, a destination picker, native folder or individual-file pickers, and private saved selections. No `.env` is needed for normal use.
 - Recursive audio-only scan: case-insensitive `.flac`, `.wav`, `.mp3` plus AudioToolbox container/type and nonzero audio-data validation. No symlinks, hidden paths, AppleDouble or REAPER uploads. Excluded paths and unreadable paths appear in the exported report.
 - Explicit preview before uploading. Signed-out preview is local; signed-in preview checks cloud metadata with GET requests. It creates no upload sessions.
 - Existing objects skipped by name. Every new upload is protected by `ifGenerationMatch=0`, including retries and replacements of expired sessions. A 412 response is a safe skip. A 403 is an error, never “not found.”
@@ -19,30 +19,38 @@ Read [QUICK-START.md](QUICK-START.md) for the engineer’s workflow and [RELEASE
 
 The app does not change storage class, bucket settings, object ACLs or retention. It inherits the bucket defaults. It does not delete or overwrite objects. Existing same-name objects are not content-verified. A generic audio container check is deliberately conservative: some unusual WAV variants may be excluded and need separate review. Uploads are one file at a time; performance tuning and parallel transfers are future work.
 
-## Local environment configuration
+## Choose and remember your destination
 
-No production bucket name or source-folder path is compiled into the app or checked into Git. Uploads remain disabled until a destination is configured.
+Click **Sign in with Google**, choose a bucket from the list, then use **Choose folder…** or **Choose files…**. The first sign-in guides you through importing the administrator’s Desktop app OAuth configuration if this Mac does not have it yet. The app never chooses the first bucket automatically.
 
-- `BISCO_GCS_BUCKET`: required bucket name, without `gs://` or a path.
-- `BISCO_SOURCE_FOLDER`: optional absolute default source path. The folder picker can override it.
-- `BISCO_ENV_FILE`: optional absolute path to a local environment file, for development or managed launches.
+Google lists buckets per project. The app discovers active projects through Resource Manager, then lists their buckets with pagination. A project that denies bucket listing produces a visible warning; it is not silently treated as empty. **Can’t find your bucket?** lets you search a project by ID or use a known bucket when your account has bucket-only access. Listing a bucket does not prove upload permission; Preview checks object access before you upload.
 
-Copy `.env.example` to `.env` and fill in your real values locally. `.env` and other `.env.*` files are ignored; only the empty `.env.example` is tracked. Never add a real configuration to Git, a source ZIP or a release bundle.
+Selections are saved to `~/Library/Application Support/Bisco Archive Uploader/settings.json` with owner-only file/directory permissions (600/700). This stores the bucket, project ID when known, account email, last folder and prefix setting. Login credentials and upload sessions stay in Keychain. A saved destination is restored only for the same signed-in account; sign-out or switching accounts clears it. Individual-file selections must be reselected after restarting, to avoid accidentally scanning their entire containing folder.
 
-For Finder launches, use **Setup → Import environment configuration (.env)…**. This copies the file to the app’s per-user Application Support directory with owner-only file permissions. The engineer can do this without Terminal. For development, `bash scripts/run.sh` points the app at the repository’s ignored `.env`. Finder does not inherit shell exports; use the import option or launch the executable with its environment explicitly set.
+Folder contents go to the bucket root unless **Include selected folder name** is on. **Choose files…** accepts recordings from one containing folder, maps only those filenames to the bucket root, and disables the folder prefix switch. Use **Choose folder…** for a recursive folder tree. Review destination paths in Preview before starting, especially when switching between file and folder selection.
 
-Process environment variables override file values. `BISCO_ENV_FILE`, when set, selects the file instead of the imported per-user copy. Missing or invalid configuration blocks uploads. Values are literal, optionally quoted; the parser does not execute shell commands or expand variables. Choose **Reload environment configuration** after an external change. A changed destination clears the preview; resume sessions are scoped to their bucket.
+No production bucket, project, source path, settings file or user credentials are bundled or published.
+
+### Optional advanced environment import
+
+The old `.env` import remains under **Setup → Advanced** for existing installations and managed setups. `BISCO_GCS_BUCKET` sets the bucket; `BISCO_SOURCE_FOLDER` optionally sets an absolute folder path. `BISCO_ENV_FILE` selects a local file for an explicit reload/import. These values are literal, never shell code. Process environment values override the legacy file when importing it. Normal startup uses saved GUI choices; an existing legacy configuration is migrated only if no settings file exists. **Reload environment configuration** explicitly replaces saved GUI choices with the legacy configuration. `scripts/run.sh` no longer requires a `.env`.
+
+The repository’s `.env` remains ignored and is not modified or published. Never include real settings in Git or a release bundle.
 
 ## One-time Google setup — archive administrator
 
-1. In your Google Cloud project, enable the Cloud Storage API if needed. Configure Google Auth Platform branding, audience and data access.
+1. In your Google Cloud project, enable the Cloud Storage and Cloud Resource Manager APIs if needed. Configure Google Auth Platform branding, audience and data access.
 2. Create an OAuth client of type **Desktop app**, then download its JSON. This app accepts the `installed` JSON shape, not a Web client or service account key. Supply the file separately to the engineer, who imports it through Setup. Do not commit it into source or place it in the release bundle.
 3. Permit the engineer’s Google account to authorize the app. While an external consent screen is in Testing, add that account as a test user. Testing-mode refresh tokens can expire after seven days; move to the appropriate production/internal configuration and complete any Google verification required for your audience and scopes.
 4. Grant bucket access as described below. Run the live acceptance checks in VALIDATION.md before treating the build as production-ready.
 
 Google desktop clients are public clients: their downloaded `client_secret`, when present, is not a durable confidential secret. This implementation nonetheless imports the entire client configuration into Keychain, sends it only to Google’s fixed token endpoint, and embeds none of it in the executable. Browser login uses a random loopback port, state validation and PKCE S256. The app never asks for the Google password. See [Google’s desktop OAuth protocol](https://developers.google.com/identity/protocols/oauth2/native-app).
 
-Requested scopes are `https://www.googleapis.com/auth/devstorage.read_write` and `https://www.googleapis.com/auth/userinfo.email`. The storage scope is broader than this one bucket; Google IAM supplies the actual bucket restrictions. Use an engineer account with only the access it needs. The UI shows the signed-in email. Access tokens stay in memory; refresh tokens and session capabilities use non-synchronizing, device-local Keychain entries. Sign-out clears local login and session capabilities but does not revoke Google’s grant or cancel abandoned server sessions; those expire. [OAuth expiration and token guidance](https://developers.google.com/identity/protocols/oauth2).
+Requested scopes are `https://www.googleapis.com/auth/devstorage.read_write`, `https://www.googleapis.com/auth/userinfo.email`, and `https://www.googleapis.com/auth/cloudplatformprojects.readonly`. Existing users must sign out and sign in again to grant project discovery access. The storage scope is broader than this one bucket; Google IAM supplies the actual bucket restrictions. Use an engineer account with only the access it needs. The UI shows the signed-in email. Access tokens stay in memory; refresh tokens and session capabilities use non-synchronizing, device-local Keychain entries. Sign-out clears local login and session capabilities but does not revoke Google’s grant or cancel abandoned server sessions; those expire. [OAuth expiration and token guidance](https://developers.google.com/identity/protocols/oauth2).
+
+### Discovery permissions
+
+Automatic project discovery requires `resourcemanager.projects.get`; listing buckets requires `storage.buckets.list` on each project. An administrator can grant only those discovery permissions through appropriate roles; do not grant Storage Admin just to populate the picker. Accounts with only create/get access on a specific bucket can use **Can’t find your bucket? → Use bucket**. See [projects.search](https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/search) and [buckets.list](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/list).
 
 ### Required bucket permissions
 

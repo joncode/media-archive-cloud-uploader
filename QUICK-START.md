@@ -7,14 +7,15 @@ Requires macOS 13 Ventura or later. The app supports Apple silicon and Intel Mac
 ## Install and connect
 
 1. Open the disk image and drag **Bisco Archive Uploader** to **Applications**. Run it from Applications.
-2. On first use, choose **Setup → Import environment configuration (.env)…** and select the local file your administrator supplies. It sets the bucket and optional default folder. Then choose **Setup → Import Google client JSON…**. Your archive administrator supplies this small configuration file.
-3. Click **Sign in with Google**. Use your own Google account in the browser, then return to the app. The account must have access to the archive bucket.
+2. Click **Sign in with Google**. On first use, the app guides you through choosing the Desktop app OAuth JSON supplied by your archive administrator. Then sign in with your own account in the browser.
+3. Choose your destination from **Destination bucket**. The list includes buckets Google allows this account to see. If one is missing, click **Can’t find your bucket?** to search a project or enter a known bucket name.
+4. Your destination and last source folder are remembered privately on this Mac. You do not need a `.env` file. Signing out clears the destination selection.
 
 The supplied development build is locally signed, **not Developer ID signed or notarized**. macOS may block a downloaded copy. For a build you trust, use Apple’s per-app **System Settings → Privacy & Security → Open Anyway** option if offered. Do not disable Gatekeeper systemwide. For routine distribution, ask the maintainer for a Developer ID signed and notarized release.
 
 ## Upload a show
 
-1. Finish recording and editing the source files. Connect the drive and click **Choose folder…**.
+1. Finish recording and editing the source files. Connect the drive and click **Choose folder…** for a recursive archive, or **Choose files…** for individual recordings from one folder. Explicitly selected files go directly to the bucket root by filename; only those files are scanned.
 2. Leave **Include selected folder name** off to match the original workflow:
    - Select a folder named `Archive`.
    - `Archive/Show/01.flac` becomes `Show/01.flac` in the configured bucket.
@@ -31,7 +32,7 @@ Existing cloud objects are skipped **by name**, regardless of their size or cont
 
 **Cancel** stops the active work and preserves resume information. A request already accepted by Google may finish as cancellation arrives. **Retry / Resume** checks Google’s saved offset and continues unfinished files. Progress updates after each acknowledged chunk, so it can sit still on a slow connection or during the initial integrity check.
 
-After quitting or restarting the Mac, select the same folder, keep the same prefix setting, preview, and start again. Completed files are skipped; unfinished uploads can resume. Expired sessions restart safely. Signing out or changing Google accounts clears saved resume sessions on this Mac. Source files must remain unchanged.
+After quitting or restarting the Mac, review the remembered folder and prefix setting, preview, and start again. Reselect individual files if you used Choose files. Completed files are skipped; unfinished uploads can resume. Expired sessions restart safely. Signing out or changing Google accounts clears saved resume sessions on this Mac. Source files must remain unchanged.
 
 For “access denied,” have the administrator check the account and bucket permissions. For “source changed,” finish editing and preview again. If a file’s completion cannot be verified, ask the administrator to inspect it; do not assume that retrying verifies an existing object.
 

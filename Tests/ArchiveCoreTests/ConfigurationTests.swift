@@ -1,5 +1,5 @@
 import XCTest
-@testable import BiscoCore
+@testable import ArchiveCore
 
 final class ConfigurationTests: XCTestCase {
     func testMissingBucketHasNoFallback() {

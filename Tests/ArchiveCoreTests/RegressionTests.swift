@@ -1,8 +1,8 @@
 import XCTest
 import CryptoKit
 import Darwin
-@testable import BiscoCore
-@testable import BiscoArchiveUploader
+@testable import ArchiveCore
+@testable import MediaArchiveCloudUploader
 
 private struct LockedStore: SecretStore {
     let backing: MemoryStore
@@ -12,7 +12,7 @@ private struct LockedStore: SecretStore {
     func clearUploads() throws { throw ArchiveError("Keychain locked in test") }
 }
 
-extension BiscoCoreTests {
+extension ArchiveCoreTests {
     func testPlusSignSurvivesFormStyleQueryDecoding() async throws {
         let storage = client(ScriptedHTTP([]))
         let name = "show/a+b + c#?.wav"

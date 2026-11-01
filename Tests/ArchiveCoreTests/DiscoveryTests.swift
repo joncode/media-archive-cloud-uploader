@@ -1,8 +1,8 @@
 import XCTest
-@testable import BiscoCore
-@testable import BiscoArchiveUploader
+@testable import ArchiveCore
+@testable import MediaArchiveCloudUploader
 
-extension BiscoCoreTests {
+extension ArchiveCoreTests {
     func jsonStep(_ json: String, status: Int = 200) -> ScriptedHTTP.Step {
         response(status, data: Data(json.utf8))
     }

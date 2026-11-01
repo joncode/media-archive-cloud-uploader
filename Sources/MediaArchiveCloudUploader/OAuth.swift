@@ -2,7 +2,7 @@ import AppKit
 import CryptoKit
 import Network
 import Security
-import BiscoCore
+import ArchiveCore
 
 struct OAuthClient: Codable {
     let client_id: String
@@ -254,7 +254,7 @@ private struct TokenResponse: Decodable {
                           let code = items.first(where: { $0.name == "code" })?.value, !code.isEmpty {
                     value = .success(code)
                 } else { value = .failure(ArchiveError("Google returned an incomplete login response.")) }
-                self.reply(connection, status: "200 OK", body: "Return to Bisco Archive Uploader to finish signing in. You can close this tab.") { self.finish(value) }
+                self.reply(connection, status: "200 OK", body: "Return to Media Archive Cloud Uploader to finish signing in. You can close this tab.") { self.finish(value) }
             }
         }
     }

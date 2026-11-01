@@ -4,4 +4,4 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 bash "$ROOT/scripts/build.sh"
 bash "$ROOT/scripts/package.sh"
-printf 'Installer ready: %s/Bisco-Archive-Uploader.dmg\n' "${DIST_DIR:-$ROOT/dist}"
+printf 'Installer ready: %s/Media-Archive-Cloud-Uploader.dmg\n' "${DIST_DIR:-$ROOT/dist}"

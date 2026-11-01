@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "BiscoArchiveUploader",
+    name: "MediaArchiveCloudUploader",
     platforms: [.macOS(.v13)],
-    products: [.executable(name: "BiscoArchiveUploader", targets: ["BiscoArchiveUploader"])],
+    products: [.executable(name: "MediaArchiveCloudUploader", targets: ["MediaArchiveCloudUploader"])],
     targets: [
-        .target(name: "BiscoCore"),
-        .executableTarget(name: "BiscoArchiveUploader", dependencies: ["BiscoCore"]),
-        .testTarget(name: "BiscoCoreTests", dependencies: ["BiscoCore", "BiscoArchiveUploader"], resources: [.copy("Fixtures")])
+        .target(name: "ArchiveCore"),
+        .executableTarget(name: "MediaArchiveCloudUploader", dependencies: ["ArchiveCore"]),
+        .testTarget(name: "ArchiveCoreTests", dependencies: ["ArchiveCore", "MediaArchiveCloudUploader"], resources: [.copy("Fixtures")])
     ],
     swiftLanguageModes: [.v5]
 )

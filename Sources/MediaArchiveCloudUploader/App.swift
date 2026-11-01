@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
-import BiscoCore
+import ArchiveCore
 
 struct FileRow: Identifiable {
     var id: String { item.id }
@@ -309,9 +309,9 @@ struct FileRow: Identifiable {
     }
     func cancel() { job?.cancel(); login.cancel(); message = "Cancelling…" }
     func exportReport() {
-        let panel = NSSavePanel(); panel.allowedContentTypes = [.plainText]; panel.nameFieldStringValue = "Bisco-upload-report.txt"
+        let panel = NSSavePanel(); panel.allowedContentTypes = [.plainText]; panel.nameFieldStringValue = "Media-Archive-upload-report.txt"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        var text = "Bisco Archive Uploader\n\(Date().formatted())\nSource: \(sourceDescription)\nDestination: \(destination)\n\(message)\n\n"
+        var text = "Media Archive Cloud Uploader\n\(Date().formatted())\nSource: \(sourceDescription)\nDestination: \(destination)\n\(message)\n\n"
         for row in rows { text += "\(row.status)\t\(row.item.objectName)\t\(row.item.size) bytes\n\(row.detail.isEmpty ? "" : row.detail + "\n")" }
         text += "\nEXCLUDED\n" + excluded.joined(separator: "\n")
         text += "\n\nSCAN ISSUES\n" + issues.joined(separator: "\n") + "\n"
@@ -353,7 +353,7 @@ struct GoogleSetupView: View {
     @ObservedObject var model: UploadModel
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Connect Bisco to Google").font(.title2).bold()
+            Text("Connect Media Archive Cloud Uploader to Google").font(.title2).bold()
             Text("Google needs to recognize this app before it can open your account sign-in. This is a one-time setup on this Mac.")
             Text("Your archive administrator can supply a Desktop app OAuth JSON file. If you manage the Google Cloud project, create a Desktop app client in Google Auth Platform and download its JSON.")
             Link("Open Google Auth Platform", destination: URL(string: "https://console.cloud.google.com/auth/clients")!)
@@ -414,7 +414,7 @@ struct ContentView: View {
             HStack(alignment: .top) {
                 Image(systemName: "waveform.circle.fill").font(.system(size: 48)).foregroundStyle(.teal)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Bisco Archive Uploader").font(.system(size: 27, weight: .bold))
+                    Text("Media Archive Cloud Uploader").font(.system(size: 27, weight: .bold))
                     Text("AUDIO ARCHIVE").font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(2).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -485,7 +485,7 @@ struct ContentView: View {
         }.padding(24).frame(minWidth: 850, minHeight: 750)
         .task { if !model.login.email.isEmpty { model.refreshBuckets() } }
         .sheet(isPresented: $model.showGoogleSetup) { GoogleSetupView(model: model) }
-        .alert("Bisco Archive Uploader", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+        .alert("Media Archive Cloud Uploader", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
     }
@@ -503,11 +503,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
-@main struct BiscoArchiveUploaderApp: App {
+@main struct MediaArchiveCloudUploaderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject var model = UploadModel()
     var body: some Scene {
-        Window("Bisco Archive Uploader", id: "main") { ContentView(model: model) }
+        Window("Media Archive Cloud Uploader", id: "main") { ContentView(model: model) }
             .defaultSize(width: 1000, height: 870)
             .commands { CommandGroup(replacing: .newItem) {} }
     }

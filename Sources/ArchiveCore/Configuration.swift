@@ -51,6 +51,7 @@ public struct ArchiveConfiguration: Equatable, Sendable {
         return values
     }
 
+    // Keep the original support directory so renamed releases reuse local settings.
     public static var savedFile: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Bisco Archive Uploader", isDirectory: true).appendingPathComponent(".env")

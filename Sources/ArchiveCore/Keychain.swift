@@ -3,6 +3,7 @@ import Security
 
 public struct KeychainStore: SecretStore {
     private let service: String
+    // Stable across the public app rename to retain existing credentials and resume data.
     public init(service: String = "org.bisco.archive-uploader") { self.service = service }
     private func query(_ key: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

@@ -1,12 +1,14 @@
-# Bisco Archive Uploader — engineer’s guide
+# Media Archive Cloud Uploader — engineer’s guide
 
 For the first trial, follow TESTING.md before attempting a large archive.
 
 Requires macOS 13 Ventura or later. The app supports Apple silicon and Intel Macs.
 
+If upgrading from Bisco Archive Uploader, quit the old app and use **Media Archive Cloud Uploader** after installation. Existing local settings and Keychain entries are retained; the earlier app copy can be removed from Applications once the new one is working.
+
 ## Install and connect
 
-1. Open the disk image and drag **Bisco Archive Uploader** to **Applications**. Run it from Applications.
+1. Open the disk image and drag **Media Archive Cloud Uploader** to **Applications**. Run it from Applications.
 2. Click **Sign in with Google**. On first use, the app guides you through choosing the Desktop app OAuth JSON supplied by your archive administrator. Then sign in with your own account in the browser.
 3. Choose your destination from **Destination bucket**. The list includes buckets Google allows this account to see. If one is missing, click **Can’t find your bucket?** to search a project or enter a known bucket name.
 4. Your destination and last source folder are remembered privately on this Mac. You do not need a `.env` file. Signing out clears the destination selection.

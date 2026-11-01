@@ -1,3 +1,11 @@
+# Public rename — November 1, 2026
+
+Version 1.1.1 (build 4) is named **Media Archive Cloud Uploader**. App windows, Google login return text, report headers, installer names, source modules and build/release scripts use the new name. The existing bundle identifier, Keychain service, Application Support folder and advanced environment variable names are retained for compatibility with existing installations.
+
+52 automated tests passed after the rename, with zero failures. No new Google login or cloud uploads were performed for this branding release. The prior live-account, permissions, transfer and notarization acceptance checks still apply. The upload filter remains FLAC/WAV/MP3 only.
+
+---
+
 # GUI setup review — October 31, 2026
 
 Version 1.1.0 (build 3) replaces required environment-file setup with sign-in, bucket selection and Finder file/folder selection. `.env` is now an optional advanced import; existing private values are not changed or bundled.

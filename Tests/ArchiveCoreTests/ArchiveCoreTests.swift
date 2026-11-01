@@ -1,6 +1,6 @@
 import XCTest
 import Foundation
-@testable import BiscoCore
+@testable import ArchiveCore
 
 final class MemoryStore: SecretStore, @unchecked Sendable {
     private let lock = NSLock()
@@ -28,7 +28,7 @@ actor ScriptedHTTP: HTTPTransport {
     var remaining: Int { steps.count }
 }
 
-final class BiscoCoreTests: XCTestCase {
+final class ArchiveCoreTests: XCTestCase {
     var root: URL!
     override func setUpWithError() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

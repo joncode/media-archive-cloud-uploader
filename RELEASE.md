@@ -21,13 +21,13 @@ bash scripts/build.sh
 3. Store notarization credentials in Keychain, using Apple’s interactive prompt or your organization’s approved credential workflow:
 
 ```bash
-xcrun notarytool store-credentials BiscoNotary
+xcrun notarytool store-credentials MediaArchiveNotary
 ```
 
 4. Submit and package:
 
 ```bash
-export NOTARY_PROFILE=BiscoNotary
+export NOTARY_PROFILE=MediaArchiveNotary
 bash scripts/notarize.sh
 ```
 

@@ -1,6 +1,6 @@
 import XCTest
 import CryptoKit
-@testable import BiscoArchiveUploader
+@testable import MediaArchiveCloudUploader
 
 final class OAuthTests: XCTestCase {
     @MainActor func testPKCEAndFormEncoding() async throws {

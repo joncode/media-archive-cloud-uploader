@@ -1,4 +1,4 @@
-# First user test — 1.1.0
+# First user test — 1.1.1
 
 This build is ready for a controlled user trial. Automated tests and a code review have run; a real Google sign-in/upload still needs to be tested. Start with a few copied recordings. Keep your original recordings.
 
@@ -6,9 +6,9 @@ This build is ready for a controlled user trial. Automated tests and a code revi
 
 After `bash scripts/distribute.sh`, the repository contains:
 
-- `dist/Bisco-Archive-Uploader.dmg` — drag-to-Applications installer.
-- `dist/Bisco Archive Uploader.app` — the application.
-- `dist/Bisco-Archive-Uploader-app.zip` — alternative container.
+- `dist/Media-Archive-Cloud-Uploader.dmg` — drag-to-Applications installer.
+- `dist/Media Archive Cloud Uploader.app` — the application.
+- `dist/Media-Archive-Cloud-Uploader-app.zip` — alternative container.
 - `dist/SHA256SUMS.txt` — container checksums.
 
 The `dist` directory is local and Git-ignored. Cloning or pulling the source from GitHub does not download the installer. Building requires Xcode; using the built app does not.

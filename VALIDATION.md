@@ -1,3 +1,9 @@
+# Update — November 1, 2026
+
+Media Archive Cloud Uploader 1.1.1: all 52 tests passed after renaming the app, modules and packaging outputs. The existing local settings and Keychain namespaces remain unchanged. Previous validation records follow.
+
+---
+
 # Update — October 31, 2026
 
 Version 1.1.0: 52 automated tests pass, including 10 new discovery/settings/file-selection regressions. See [REVIEW.md](REVIEW.md) and [TESTING.md](TESTING.md) for the new GUI setup and remaining live acceptance checks. Earlier records below describe previous builds.
@@ -21,7 +27,7 @@ Current review: [REVIEW.md](REVIEW.md), October 30, 2026. The expanded suite pas
 - The app was launched and its initial SwiftUI window visually inspected. The screenshot in the handoff is the actual application, not a mockup. UI automation was unavailable because the computer-use Accessibility permission had not been enabled; interactive folder-picker and export clicks were not automated.
 - Build/package shell syntax checked. Ad-hoc signatures verified on the clean packaged app. Installer image integrity and the ZIP-extracted app signature were checked after packaging.
 
-Tests are in `Tests/BiscoCoreTests`. Fixture audio is synthetic: tiny FLAC/MP3 silence streams and short generated WAV tones in RF64/BW64 containers. Both silence formats were successfully decoded by macOS `afconvert`. Fixtures contain no concert recordings or third-party audio.
+Tests are in `Tests/ArchiveCoreTests`. Fixture audio is synthetic: tiny FLAC/MP3 silence streams and short generated WAV tones in RF64/BW64 containers. Both silence formats were successfully decoded by macOS `afconvert`. Fixtures contain no concert recordings or third-party audio.
 
 - Environment configuration tests covered missing configuration, process/file precedence, quoted paths, literal parsing, malformed bucket/path rejection, explicit file loading and bucket-isolated resume sessions.
 

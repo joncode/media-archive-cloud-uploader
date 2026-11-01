@@ -1,4 +1,4 @@
-# Bisco Archive Uploader
+# Media Archive Cloud Uploader
 
 A native SwiftUI macOS app for uploading FOH recordings to a Google Cloud Storage bucket configured locally. The selected folder’s **contents go to the bucket root by default**, as explicitly requested. A visible switch can include the selected folder’s name.
 
@@ -18,6 +18,10 @@ Read [QUICK-START.md](QUICK-START.md) for the engineer’s workflow and [RELEASE
 - No shell execution, runtime package downloads, bundled Python, CLI dependency, service account key, embedded Google client, user credential or analytics.
 
 The app does not change storage class, bucket settings, object ACLs or retention. It inherits the bucket defaults. It does not delete or overwrite objects. Existing same-name objects are not content-verified. A generic audio container check is deliberately conservative: some unusual WAV variants may be excluded and need separate review. Uploads are one file at a time; performance tuning and parallel transfers are future work.
+
+## Upgrading from Bisco Archive Uploader
+
+The public name is now **Media Archive Cloud Uploader**. The app keeps its existing bundle identifier, Keychain service and Application Support directory so the rename can reuse saved settings and login information. Those internal compatibility identifiers do not configure any bucket or source folder. Install the newly named app, quit the old app, and use the new one going forward. The audio-only upload behavior is unchanged.
 
 ## Choose and remember your destination
 
@@ -86,7 +90,7 @@ bash scripts/distribute.sh
 
 The scripts use SwiftPM’s `native` build engine, supported by the tested toolchain but deprecated in Swift 6.4. When adopting a future toolchain that removes it, switch to the default engine and repeat the release checks. The default engine compiled the source here, but its test signing and debug-symbol generation were affected by this managed environment.
 
-Core networking, scanning, file integrity and Keychain code live in `Sources/BiscoCore`. SwiftUI and browser OAuth live in `Sources/BiscoArchiveUploader`. Automated protocol tests inject a fake HTTP transport; production always uses Google HTTPS endpoints. No test exposes credentials or writes to the live bucket.
+Core networking, scanning, file integrity and Keychain code live in `Sources/ArchiveCore`. SwiftUI and browser OAuth live in `Sources/MediaArchiveCloudUploader`. Automated protocol tests inject a fake HTTP transport; production always uses Google HTTPS endpoints. No test exposes credentials or writes to the live bucket.
 
 ## Boundaries
 

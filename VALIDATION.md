@@ -1,3 +1,9 @@
+# Update — November 2, 2026
+
+Version 1.2.0: 69 tests passed with zero failures. The suite includes parallel transfer scheduling and recovery, automatic preparation, live local HTTP upload callbacks, speed/ETA accounting, and compatibility with older settings and resume records. Universal release compilation and package signature/checksum checks succeeded. No app launch, user Keychain change or real Google transfer was performed during this pass; the existing running app was left alone. Real throughput/ETA and venue-network behavior remain acceptance checks.
+
+---
+
 # Update — November 1, 2026
 
 Media Archive Cloud Uploader 1.1.1: all 52 tests passed after renaming the app, modules and packaging outputs. The existing local settings and Keychain namespaces remain unchanged. Previous validation records follow.

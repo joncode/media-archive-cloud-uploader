@@ -22,8 +22,8 @@ The supplied development build is locally signed, **not Developer ID signed or n
    - Select a folder named `Archive`.
    - `Archive/Show/01.flac` becomes `Show/01.flac` in the configured bucket.
    - Turning the switch on adds `Archive/` before `Show/01.flac`.
-3. Click **Preview (dry run)**. Review the destination paths and files marked “Will skip — exists.” Preview does not upload anything.
-4. Click **Start upload**. Keep the Mac awake and connected. The app prevents idle system sleep during uploads, but cannot prevent closing the laptop or unplugging a drive.
+3. Choose **1, 2 or 4 simultaneous uploads**. Start with the default of **2**; try 1 if the source drive struggles, or compare 4 on a fast connection.
+4. Click **Start upload**. The app scans recordings, checks existing files, then uploads automatically. **Preview (dry run)** is optional if you want to review paths and exclusions first. Preparation problems stop uploads and appear in the report. Keep the Mac awake and connected. The app prevents idle system sleep during uploads, but cannot prevent closing the laptop or unplugging a drive.
 5. Check the completion message. Select any failed row for details. **Export report…** includes excluded files and scan problems.
 
 Only readable FLAC, WAV and MP3 audio containers are included. AppleDouble `._` files, hidden paths, REAPER files, symbolic links, empty files and unsupported audio containers are excluded. Container checking is not a full decode or a guarantee that a recording sounds correct.
@@ -32,10 +32,14 @@ Existing cloud objects are skipped **by name**, regardless of their size or cont
 
 ## Stop, retry and resume
 
-**Cancel** stops the active work and preserves resume information. A request already accepted by Google may finish as cancellation arrives. **Retry / Resume** checks Google’s saved offset and continues unfinished files. Progress updates after each acknowledged chunk, so it can sit still on a slow connection or during the initial integrity check.
+**Cancel** stops the active work and preserves resume information. A request already accepted by Google may finish as cancellation arrives. **Retry / Resume** checks Google’s saved offset and continues unfinished files. Speed updates about once a second across all active uploads. Time remaining is an estimate that settles as data is acknowledged; it shows a status during integrity checks or retries. The completion bar moves when Google acknowledges data. Skipped and previously resumed bytes do not inflate speed; retransmissions are included in bytes sent this run.
 
-After quitting or restarting the Mac, review the remembered folder and prefix setting, preview, and start again. Reselect individual files if you used Choose files. Completed files are skipped; unfinished uploads can resume. Expired sessions restart safely. Signing out or changing Google accounts clears saved resume sessions on this Mac. Source files must remain unchanged.
+After quitting or restarting the Mac, review the remembered folder and prefix setting, then click Start again. Preview remains optional. Reselect individual files if you used Choose files. Completed files are skipped; unfinished uploads can resume. Expired sessions restart safely. Signing out or changing Google accounts clears saved resume sessions on this Mac. Source files must remain unchanged.
 
 For “access denied,” have the administrator check the account and bucket permissions. For “source changed,” finish editing and preview again. If a file’s completion cannot be verified, ask the administrator to inspect it; do not assume that retrying verifies an existing object.
 
 **Sign out** removes this app’s saved login and resume data from the Mac. To revoke Google’s grant too, use **Setup → Google account permissions…**.
+
+## Install an update during an archive job
+
+Let the current job finish, or click Cancel and wait until it stops. Quit the old app before replacing it with the update. Keep the same source, bucket and folder-prefix setting when continuing. Do not sign out just to update: signing out clears saved resume records. Version 1.2.0 retains the existing settings, login and resumable-session formats.

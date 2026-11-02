@@ -3,9 +3,25 @@ import CryptoKit
 
 public protocol HTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
+    func send(_ request: URLRequest, uploadProgress: @escaping @Sendable (Int64) -> Void) async throws -> (Data, HTTPURLResponse)
 }
 
-private final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+public extension HTTPTransport {
+    // Fallback for transports without incremental body reporting (including test doubles).
+    func send(_ request: URLRequest, uploadProgress: @escaping @Sendable (Int64) -> Void) async throws -> (Data, HTTPURLResponse) {
+        let result = try await send(request)
+        uploadProgress(Int64(request.httpBody?.count ?? 0))
+        return result
+    }
+}
+
+final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let progress: @Sendable (Int64) -> Void
+    init(progress: @escaping @Sendable (Int64) -> Void = { _ in }) { self.progress = progress }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        progress(totalBytesSent)
+    }
     func urlSession(_ session: URLSession, task: URLSessionTask,
         willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
@@ -25,8 +41,20 @@ public final class SecureHTTP: HTTPTransport, @unchecked Sendable {
     // The separate delegate prevents a URLSession -> client -> URLSession retain cycle.
     // Redirects are refused so tokens and resumable capabilities stay on their original host.
     public func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        try await perform(request, progress: nil)
+    }
+    public func send(_ request: URLRequest, uploadProgress: @escaping @Sendable (Int64) -> Void) async throws -> (Data, HTTPURLResponse) {
+        try await perform(request, progress: uploadProgress)
+    }
+    private func perform(_ request: URLRequest, progress: (@Sendable (Int64) -> Void)?) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (data, response) = try await session.data(for: request)
+            let data: Data, response: URLResponse
+            if let progress, let body = request.httpBody, !body.isEmpty {
+                var upload = request; upload.httpBody = nil
+                (data, response) = try await session.upload(for: upload, from: body, delegate: NoRedirectDelegate(progress: progress))
+            } else {
+                (data, response) = try await session.data(for: request)
+            }
             guard let response = response as? HTTPURLResponse else { throw ArchiveError("Invalid server response.") }
             return (data, response)
         } catch {
@@ -74,12 +102,18 @@ public struct UploadCheckpoint: Codable, Sendable {
 }
 
 public enum UploadResult: String, Sendable { case uploaded = "Uploaded", existing = "Skipped — already exists" }
+public enum TransferPhase: Sendable { case checking, uploading, retrying }
 public struct UploadProgress: Sendable {
     public let bytes: Int64
     public let message: String
+    public let newBytes: Int64
+    public let phase: TransferPhase
+    public init(bytes: Int64, message: String, newBytes: Int64 = 0, phase: TransferPhase = .uploading) {
+        self.bytes = bytes; self.message = message; self.newBytes = newBytes; self.phase = phase
+    }
 }
 
-public actor StorageClient {
+public actor StorageClient: ArchiveStorage {
     public let bucket: String
     public static let chunkSize = 8 * 1024 * 1024
     private let http: HTTPTransport
@@ -119,6 +153,7 @@ public actor StorageClient {
             try Task.checkCancellation()
             var req = request
             req.setValue("Bearer " + (try await token(refresh)), forHTTPHeaderField: "Authorization")
+            try Task.checkCancellation()
             let result = try await http.send(req)
             if result.1.statusCode != 401 || refresh { return result }
         }
@@ -163,14 +198,28 @@ public actor StorageClient {
         return last + 1
     }
 
-    public func upload(_ item: AudioItem, progress: @escaping @Sendable (UploadProgress) async -> Void) async throws -> UploadResult {
+    private func sendChunk(_ request: URLRequest, statistics: TransferStatistics?) async throws -> (Data, HTTPURLResponse) {
+        guard let statistics, let body = request.httpBody, !body.isEmpty else { return try await http.send(request) }
+        let id = statistics.beginRequest()
+        defer { statistics.endRequest(id) }
+        return try await http.send(request, uploadProgress: { count in statistics.sent(count, request: id) })
+    }
+
+    public func upload(_ item: AudioItem, statistics: TransferStatistics? = nil, progress: @escaping @Sendable (UploadProgress) async -> Void) async throws -> UploadResult {
         try Task.checkCancellation()
         let key = checkpointKey(item)
         if try await exists(item) { try store.remove(key); return .existing }
-        await progress(UploadProgress(bytes: 0, message: "Checking file integrity…"))
+        await progress(UploadProgress(bytes: 0, message: "Checking file integrity…", phase: .checking))
+        try Task.checkCancellation()
+        // Hash off this actor so checking a large file cannot block other uploads.
+        let hashing = Task.detached(priority: .utility) {
+            let input = try item.openUnchanged(); defer { try? input.close() }
+            return try Digests.read(item, handle: input)
+        }
+        let digest = try await withTaskCancellationHandler(operation: { try await hashing.value }, onCancel: { hashing.cancel() })
+        try Task.checkCancellation()
         let handle = try item.openUnchanged()
         defer { try? handle.close() }
-        let digest = try Digests.read(item, handle: handle)
         var checkpoint: UploadCheckpoint?
         if let data = try store.read(key) {
             if let saved = try? JSONDecoder().decode(UploadCheckpoint.self, from: data),
@@ -181,6 +230,7 @@ public actor StorageClient {
         }
         var offset: Int64 = 0
         var mustQuery = checkpoint != nil
+        var offsetKnown = checkpoint == nil
         var failures = 0
         var restarts = 0
         while true {
@@ -205,7 +255,7 @@ public actor StorageClient {
                     }
                     let saved = UploadCheckpoint(session: url, digest: digest.sha256, size: item.size, created: Date())
                     try store.write(key, data: JSONEncoder().encode(saved))
-                    checkpoint = saved; offset = 0; mustQuery = false
+                    checkpoint = saved; offset = 0; mustQuery = false; offsetKnown = true
                 }
                 let session = checkpoint!.session
                 var req = URLRequest(url: session)
@@ -225,12 +275,15 @@ public actor StorageClient {
                     req.setValue("bytes \(offset)-\(offset + Int64(count) - 1)/\(item.size)", forHTTPHeaderField: "Content-Range")
                 }
                 req.setValue(String(req.httpBody!.count), forHTTPHeaderField: "Content-Length")
-                let (data, response) = try await http.send(req)
+                await progress(UploadProgress(bytes: offset, message: mustQuery ? "Checking saved upload…" : "Uploading…",
+                                              phase: mustQuery ? .checking : .uploading))
+                try Task.checkCancellation()
+                let (data, response) = try await sendChunk(req, statistics: statistics)
                 switch response.statusCode {
                 case 200, 201:
                     try completed(data, item: item, digest: digest)
                     try store.remove(key)
-                    await progress(UploadProgress(bytes: item.size, message: "Uploaded and checksum verified"))
+                    await progress(UploadProgress(bytes: item.size, message: "Uploaded and checksum verified", newBytes: offsetKnown ? item.size - offset : 0))
                     return .uploaded
                 case 308:
                     let next = try Self.acknowledgedOffset(response, total: item.size)
@@ -239,14 +292,16 @@ public actor StorageClient {
                         throw ArchiveError("Google acknowledged bytes that were not sent. Retry to recheck the upload session.")
                     }
                     guard next >= offset else { throw ArchiveError("Google’s upload offset moved backwards. Retry to recheck the session.") }
-                    offset = next; mustQuery = false
-                    await progress(UploadProgress(bytes: offset, message: "Uploading…"))
+                    let added = offsetKnown ? next - offset : 0
+                    offset = next; mustQuery = false; offsetKnown = true
+                    await progress(UploadProgress(bytes: offset, message: "Uploading…", newBytes: added))
                 case 412:
                     try store.remove(key); return .existing
                 case 404, 410:
                     restarts += 1
                     guard restarts <= 2 else { throw ArchiveError("Google repeatedly expired the upload session. Retry later.") }
-                    try store.remove(key); checkpoint = nil; offset = 0; mustQuery = false
+                    try store.remove(key); checkpoint = nil; offset = 0; mustQuery = false; offsetKnown = true
+                    await progress(UploadProgress(bytes: 0, message: "Upload session expired — restarting…", phase: .retrying))
                     if try await exists(item) { return .existing }
                 default: throw ServiceFailure(status: response.statusCode)
                 }
@@ -255,7 +310,7 @@ public actor StorageClient {
             } catch {
                 if Task.isCancelled { throw CancellationError() }
                 guard isRetryable(error), failures < 5 else { throw error }
-                await progress(UploadProgress(bytes: offset, message: "Connection interrupted — retry \(failures + 1) of 5…"))
+                await progress(UploadProgress(bytes: offset, message: "Connection interrupted — retry \(failures + 1) of 5…", phase: .retrying))
                 try await delay(failures); failures += 1
                 mustQuery = checkpoint != nil
             }

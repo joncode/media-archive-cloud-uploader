@@ -31,6 +31,11 @@ private struct TokenResponse: Decodable {
     private var accessToken: String?
     private var expiry = Date.distantPast
     private var callback: LoopbackLogin?
+    private var refreshTask: Task<String, Error>?
+    private var loginGeneration = UUID()
+    private func invalidateRefresh() {
+        loginGeneration = UUID(); refreshTask?.cancel(); refreshTask = nil
+    }
 
     init(store: SecretStore = KeychainStore(), http: HTTPTransport = SecureHTTP()) {
         self.store = store; self.http = http
@@ -123,6 +128,7 @@ private struct TokenResponse: Decodable {
               let account = obj["email"] as? String, !account.isEmpty,
               let refresh = tokens.refresh_token else { throw ArchiveError("Google did not return account information and offline access. Try signing in again.") }
         try Task.checkCancellation()
+        invalidateRefresh()
         // A different account must never inherit a previous account's resumable capabilities.
         try store.clearUploads()
         let login = SavedLogin(refreshToken: refresh, email: account)
@@ -131,21 +137,40 @@ private struct TokenResponse: Decodable {
         expiry = Date().addingTimeInterval(tokens.expires_in - 60)
     }
     func token(forceRefresh: Bool) async throws -> String {
+        try Task.checkCancellation()
+        // Concurrent workers share one refresh, including forced refreshes after a 401.
+        if let refreshTask {
+            let value = try await refreshTask.value
+            try Task.checkCancellation()
+            return value
+        }
         if !forceRefresh, let accessToken, expiry > Date() { return accessToken }
         guard let client, let saved else { throw AuthenticationFailure("Sign in to Google before checking or uploading.") }
-        var values = ["client_id": client.client_id, "refresh_token": saved.refreshToken, "grant_type": "refresh_token"]
-        values["client_secret"] = client.client_secret
-        let result = try await exchange(values)
-        if let replacement = result.refresh_token {
-            let updated = SavedLogin(refreshToken: replacement, email: saved.email)
-            try store.write("oauth-login", data: JSONEncoder().encode(updated))
-            self.saved = updated
+        let generation = loginGeneration
+        let task = Task { @MainActor [self] () throws -> String in
+            try Task.checkCancellation()
+            var values = ["client_id": client.client_id, "refresh_token": saved.refreshToken, "grant_type": "refresh_token"]
+            values["client_secret"] = client.client_secret
+            let result = try await exchange(values)
+            try Task.checkCancellation()
+            guard loginGeneration == generation else { throw CancellationError() }
+            if let replacement = result.refresh_token {
+                let updated = SavedLogin(refreshToken: replacement, email: saved.email)
+                try store.write("oauth-login", data: JSONEncoder().encode(updated))
+                self.saved = updated
+            }
+            accessToken = result.access_token; expiry = Date().addingTimeInterval(result.expires_in - 60)
+            return result.access_token
         }
-        accessToken = result.access_token; expiry = Date().addingTimeInterval(result.expires_in - 60)
-        return result.access_token
+        refreshTask = task
+        defer { if loginGeneration == generation { refreshTask = nil } }
+        let value = try await task.value
+        try Task.checkCancellation()
+        return value
     }
-    func cancel() { callback?.stop() }
+    func cancel() { callback?.stop(); invalidateRefresh() }
     func signOut() throws {
+        invalidateRefresh()
         // Even a locked Keychain must not leave a usable login in memory after Sign out.
         defer { saved = nil; email = ""; accessToken = nil; expiry = .distantPast }
         try store.remove("oauth-login"); try store.clearUploads()

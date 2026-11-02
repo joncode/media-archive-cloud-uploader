@@ -10,14 +10,14 @@ Read [QUICK-START.md](QUICK-START.md) for the engineer’s workflow and [RELEASE
 
 - Google browser login, automatic bucket discovery across visible projects, a destination picker, native folder or individual-file pickers, and private saved selections. No `.env` is needed for normal use.
 - Recursive audio-only scan: case-insensitive `.flac`, `.wav`, `.mp3` plus AudioToolbox container/type and nonzero audio-data validation. No symlinks, hidden paths, AppleDouble or REAPER uploads. Excluded paths and unreadable paths appear in the exported report.
-- Explicit preview before uploading. Signed-out preview is local; signed-in preview checks cloud metadata with GET requests. It creates no upload sessions.
+- One-click Start automatically scans and checks existing objects before uploading. Preview remains optional and read-only: signed-out preview is local; signed-in preview uses metadata GET requests. Preparation errors stop automatic upload and remain in the report.
 - Existing objects skipped by name. Every new upload is protected by `ifGenerationMatch=0`, including retries and replacements of expired sessions. A 412 response is a safe skip. A 403 is an error, never “not found.”
-- Sequential uploads with bounded 8 MiB chunks, acknowledged-byte progress, per-file status, errors, exported reports, exponential backoff with jitter, cancellation and retry.
-- Keychain-persisted resumable session URLs. On restart, the engineer reselects the folder and previews. The app queries the saved server offset instead of guessing how many bytes arrived. Sessions older than six days are restarted, ahead of Google’s one-week expiry.
+- Choose 1, 2 or 4 simultaneous files (default 2), each using bounded 8 MiB resumable chunks. Upload speed updates approximately once a second from actual URLSession body progress; ETA uses newly acknowledged bytes and remaining work. Per-file status, errors, reports, backoff, cancellation and retry remain available.
+- Keychain-persisted resumable session URLs. On restart, the engineer reviews the folder and destination, then clicks Start; Preview is optional. The app queries the saved server offset instead of guessing how many bytes arrived. Sessions older than six days are restarted, ahead of Google’s one-week expiry.
 - SHA-256 binds a saved session to the exact source content; MD5 is supplied as object metadata for server-side transfer validation and checked in the completion response. File identity, size and modification time are also checked while reading.
 - No shell execution, runtime package downloads, bundled Python, CLI dependency, service account key, embedded Google client, user credential or analytics.
 
-The app does not change storage class, bucket settings, object ACLs or retention. It inherits the bucket defaults. It does not delete or overwrite objects. Existing same-name objects are not content-verified. A generic audio container check is deliberately conservative: some unusual WAV variants may be excluded and need separate review. Uploads are one file at a time; performance tuning and parallel transfers are future work.
+The app does not change storage class, bucket settings, object ACLs or retention. It inherits the bucket defaults. It does not delete or overwrite objects. Existing same-name objects are not content-verified. A generic audio container check is deliberately conservative: some unusual WAV variants may be excluded and need separate review. Concurrency is across files, not parallel parts of one file. More workers may help fill an underused connection but can compete for disk or network bandwidth.
 
 ## Upgrading from Bisco Archive Uploader
 
@@ -29,7 +29,7 @@ Click **Sign in with Google**, choose a bucket from the list, then use **Choose 
 
 Google lists buckets per project. The app discovers active projects through Resource Manager, then lists their buckets with pagination. A project that denies bucket listing produces a visible warning; it is not silently treated as empty. **Can’t find your bucket?** lets you search a project by ID or use a known bucket when your account has bucket-only access. Listing a bucket does not prove upload permission; Preview checks object access before you upload.
 
-Selections are saved to `~/Library/Application Support/Bisco Archive Uploader/settings.json` with owner-only file/directory permissions (600/700). This stores the bucket, project ID when known, account email, last folder and prefix setting. Login credentials and upload sessions stay in Keychain. A saved destination is restored only for the same signed-in account; sign-out or switching accounts clears it. Individual-file selections must be reselected after restarting, to avoid accidentally scanning their entire containing folder.
+Selections are saved to `~/Library/Application Support/Bisco Archive Uploader/settings.json` with owner-only file/directory permissions (600/700). This stores the bucket, project ID when known, account email, last folder, prefix setting and simultaneous-upload limit. Login credentials and upload sessions stay in Keychain. A saved destination is restored only for the same signed-in account; sign-out or switching accounts clears it. Individual-file selections must be reselected after restarting, to avoid accidentally scanning their entire containing folder.
 
 Folder contents go to the bucket root unless **Include selected folder name** is on. **Choose files…** accepts recordings from one containing folder, maps only those filenames to the bucket root, and disables the folder prefix switch. Use **Choose folder…** for a recursive folder tree. Review destination paths in Preview before starting, especially when switching between file and folder selection.
 
@@ -40,6 +40,16 @@ No production bucket, project, source path, settings file or user credentials ar
 The old `.env` import remains under **Setup → Advanced** for existing installations and managed setups. `BISCO_GCS_BUCKET` sets the bucket; `BISCO_SOURCE_FOLDER` optionally sets an absolute folder path. `BISCO_ENV_FILE` selects a local file for an explicit reload/import. These values are literal, never shell code. Process environment values override the legacy file when importing it. Normal startup uses saved GUI choices; an existing legacy configuration is migrated only if no settings file exists. **Reload environment configuration** explicitly replaces saved GUI choices with the legacy configuration. `scripts/run.sh` no longer requires a `.env`.
 
 The repository’s `.env` remains ignored and is not modified or published. Never include real settings in Git or a release bundle.
+
+## Transfer speed, ETA and concurrency
+
+**Start upload** performs preparation when no valid preview is available, then automatically transfers eligible files. An optional completed Preview can be reused. Scan issues or failed cloud checks block automatic transfer and can be exported for review. Destination/source changes invalidate the prepared list. Each file still checks its source identity and destination immediately before upload, and every initiation uses the create-only precondition.
+
+The saved concurrency choice is 1, 2 or 4; older settings default to 2. It can be changed while idle. A bounded queue starts no more than that many files, allows ordinary per-file errors to be retried later, and cancels other active workers on an account/permission failure. Cancel waits for the workers to stop before enabling another run. Hashing runs off the storage actor so one large integrity check does not prevent other transfers from progressing. Concurrent token requests share a single refresh; cancellation or sign-out invalidates late refresh results.
+
+**Speed** is combined outgoing payload bytes over approximately the last ten seconds. **Sent this run** includes retransmitted request bodies, but excludes skipped files and bytes already present in a resumed session. The completion bar remains based on server acknowledgements; sending bytes alone does not mark a file uploaded. **Time remaining** uses newly acknowledged bytes divided by elapsed upload-phase time (including integrity checks and retry delays), applied to the remaining bytes. Skipped files are excluded; saved offsets are subtracted once verified with Google. Preparation has no speed or ETA. During checks, all-worker retries or a stall, the app shows status instead of a stale time estimate. ETA is approximate and can change as resumes are recognized or connectivity changes.
+
+Google API integration remains direct; this release does not install or invoke the CLI. Foundation upload progress uses [URLSession upload delegates](https://developer.apple.com/documentation/foundation/urlsessiontaskdelegate).
 
 ## One-time Google setup — archive administrator
 

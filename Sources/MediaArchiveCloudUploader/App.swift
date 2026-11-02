@@ -11,12 +11,22 @@ struct FileRow: Identifiable {
     var bytes: Int64 = 0
     var failed = false
     var finished = false
+    var existing = false
+    var active = false
+    var phase: TransferPhase = .checking
 }
 
 @MainActor final class UploadModel: ObservableObject {
     @Published var folder: URL?
     @Published var files: [URL] = []
     @Published var includeFolder = false
+    @Published var simultaneousUploads = 2
+    @Published var transferring = false
+    @Published var transferSnapshot: TransferSnapshot?
+    private var statistics: TransferStatistics?
+    private var statisticsTask: Task<Void, Never>?
+    private var fatalUploadError: String?
+    private let storageOverride: (any ArchiveStorage)?
     @Published var buckets: [CloudBucket] = []
     @Published var discoveryMessage = "Sign in to see your Google Cloud buckets."
     @Published var manualProject = ""
@@ -30,7 +40,7 @@ struct FileRow: Identifiable {
     @Published var issues: [String] = []
     @Published var busy = false
     @Published var previewReady = false
-    @Published var message = "Choose a folder, preview the recordings, then upload."
+    @Published var message = "Choose a bucket and recordings, then start uploading. Preview is optional."
     @Published var error: String?
     @Published var selection: String?
     @Published var activity = ""
@@ -39,11 +49,12 @@ struct FileRow: Identifiable {
     let login: GoogleLogin
     private var job: Task<Void, Never>?
     @Published var configuration: ArchiveConfiguration?
-    private var storage: StorageClient?
+    private var storage: (any ArchiveStorage)?
     init(login: GoogleLogin? = nil, loadConfiguration: Bool = true,
-         preferencesFile: URL = ArchivePreferences.savedFile, directoryHTTP: HTTPTransport = SecureHTTP()) {
+         preferencesFile: URL = ArchivePreferences.savedFile, directoryHTTP: HTTPTransport = SecureHTTP(),
+         storageOverride: (any ArchiveStorage)? = nil) {
         let account = login ?? GoogleLogin()
-        self.login = account; self.preferencesFile = preferencesFile
+        self.login = account; self.preferencesFile = preferencesFile; self.storageOverride = storageOverride
         directory = CloudDirectory(http: directoryHTTP, token: { force in try await account.token(forceRefresh: force) })
         if loadConfiguration { restorePreferences() }
     }
@@ -52,7 +63,7 @@ struct FileRow: Identifiable {
             if let saved = try ArchivePreferences.load(from: preferencesFile) {
                 preferences = saved
                 folder = saved.sourceFolder.map { URL(fileURLWithPath: $0, isDirectory: true) }
-                includeFolder = saved.includeFolder
+                includeFolder = saved.includeFolder; simultaneousUploads = saved.simultaneousUploads ?? 2
                 if let bucket = saved.bucket, !login.email.isEmpty, saved.accountEmail == login.email {
                     try applyConfiguration(ArchiveConfiguration(environment: ["BISCO_GCS_BUCKET": bucket,
                         "BISCO_SOURCE_FOLDER": saved.sourceFolder ?? ""]))
@@ -73,7 +84,7 @@ struct FileRow: Identifiable {
     }
     private func useLegacyConfiguration(_ value: ArchiveConfiguration) throws {
         let saved = ArchivePreferences(bucket: value.bucket, accountEmail: login.email.isEmpty ? nil : login.email,
-                                       sourceFolder: value.sourceFolder?.path)
+                                       sourceFolder: value.sourceFolder?.path, simultaneousUploads: simultaneousUploads)
         try savePreferences(saved)
         files = []; includeFolder = false
         try applyConfiguration(value)
@@ -99,7 +110,7 @@ struct FileRow: Identifiable {
     func rememberSource() {
         var saved = preferences
         saved.sourceFolder = files.isEmpty ? folder?.path : nil
-        saved.includeFolder = includeFolder
+        saved.includeFolder = includeFolder; saved.simultaneousUploads = simultaneousUploads
         do { try savePreferences(saved) }
         catch { self.error = "Could not save your selection: " + error.localizedDescription }
     }
@@ -143,11 +154,15 @@ struct FileRow: Identifiable {
         return error.localizedDescription
     }
     func applyConfiguration(_ value: ArchiveConfiguration) throws {
-        let client = try StorageClient(bucket: value.bucket, store: KeychainStore(), token: { [login] force in
-            try await login.token(forceRefresh: force)
-        })
+        let client: any ArchiveStorage
+        if let storageOverride { client = storageOverride }
+        else {
+            client = try StorageClient(bucket: value.bucket, store: KeychainStore(), token: { [login] force in
+                try await login.token(forceRefresh: force)
+            })
+        }
         configuration = value; storage = client; folder = value.sourceFolder
-        invalidate(); message = "Choose or review the source folder, then preview."
+        invalidate(); message = "Choose or review your recordings, then start uploading. Preview is optional."
     }
     func reloadConfiguration() {
         do { try useLegacyConfiguration(ArchiveConfiguration.load()) }
@@ -174,12 +189,15 @@ struct FileRow: Identifiable {
         guard let configuration else { return "Choose a destination bucket above" }
         return "gs://\(configuration.bucket)/" + (includeFolder && files.isEmpty ? (folder?.lastPathComponent ?? "Selected folder") + "/" : "")
     }
-    func invalidate() { rows = []; excluded = []; issues = []; previewReady = false; activity = ""; started = nil; transferred = 0 }
+    func invalidate() {
+        rows = []; excluded = []; issues = []; previewReady = false; activity = ""; started = nil; transferred = 0
+        statisticsTask?.cancel(); statisticsTask = nil; statistics = nil; transferSnapshot = nil
+    }
     func chooseFolder() {
         let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false; panel.prompt = "Choose archive folder"
         if panel.runModal() == .OK, let url = panel.url {
-            folder = url; files = []; invalidate(); rememberSource(); message = "Ready for a dry-run preview."
+            folder = url; files = []; invalidate(); rememberSource(); message = "Ready to upload. You can also preview without uploading."
         }
     }
     func chooseFiles() {
@@ -188,7 +206,7 @@ struct FileRow: Identifiable {
         panel.message = "Select recordings from one folder. Their filenames will go directly into the bucket."
         if panel.runModal() == .OK, !panel.urls.isEmpty {
             files = panel.urls; folder = nil; includeFolder = false
-            invalidate(); rememberSource(); message = "Ready for a dry-run preview."
+            invalidate(); rememberSource(); message = "Ready to upload. You can also preview without uploading."
         }
     }
     var sourceDescription: String {
@@ -230,83 +248,162 @@ struct FileRow: Identifiable {
         do { try login.signOut(); message = "Signed out on this Mac." }
         catch { self.error = error.localizedDescription }
     }
+    var canStart: Bool {
+        !busy && configuration != nil && !login.email.isEmpty && (folder != nil || !files.isEmpty)
+    }
+    var remainingBytes: Int64 {
+        rows.reduce(0) { $0 + ($1.finished || $1.existing ? 0 : max(0, $1.item.size - $1.bytes)) }
+    }
+    var activeCount: Int { rows.filter(\.active).count }
+    var skippedCount: Int { rows.filter { $0.finished && $0.existing }.count }
+    var speedText: String {
+        guard transferring else { return "—" }
+        guard let rate = transferSnapshot?.bytesPerSecond else { return "Calculating…" }
+        return ByteCountFormatter.string(fromByteCount: Int64(min(rate, Double(Int64.max / 2))), countStyle: .file) + "/s"
+    }
+    var remainingTimeText: String {
+        guard transferring else { return started != nil && !rows.isEmpty && rows.allSatisfy(\.finished) ? "Finished" : "—" }
+        let active = rows.filter(\.active)
+        if !active.isEmpty && active.allSatisfy({ $0.phase == .retrying }) { return "Retrying…" }
+        if !active.isEmpty && active.allSatisfy({ $0.phase == .checking }) { return "Checking files…" }
+        if remainingBytes == 0 { return "Finishing…" }
+        guard let seconds = transferSnapshot?.remainingSeconds, seconds.isFinite else { return "Calculating…" }
+        if seconds < 60 { return "About < 1 min" }
+        if seconds > 365 * 86400 { return "Over 1 year" }
+        let formatter = DateComponentsFormatter(); formatter.allowedUnits = [.day, .hour, .minute]
+        formatter.unitsStyle = .abbreviated; formatter.maximumUnitCount = 2
+        return "About " + (formatter.string(from: min(seconds, 365 * 86400)) ?? "—")
+    }
+    private func prepare() async throws {
+        let sourceFolder = folder, sourceFiles = files, include = includeFolder
+        invalidate(); message = "Scanning audio files…"
+        let scan = Task.detached(priority: .userInitiated) {
+            if !sourceFiles.isEmpty { return try AudioScanner.scan(files: sourceFiles) }
+            guard let sourceFolder else { throw ArchiveError("Choose your recordings first.") }
+            return try AudioScanner.scan(folder: sourceFolder, includeFolder: include)
+        }
+        let report = try await withTaskCancellationHandler(operation: { try await scan.value }, onCancel: { scan.cancel() })
+        try Task.checkCancellation()
+        rows = report.items.map { FileRow(item: $0) }; excluded = report.excluded; issues = report.issues
+        if !login.email.isEmpty, let storage {
+            message = "Checking existing files…"
+            // Keep preparation read-only and stop on a global permission problem.
+            for index in rows.indices {
+                try Task.checkCancellation()
+                activity = "Checking \(index + 1) of \(rows.count): \(rows[index].item.objectName)"
+                do {
+                    let present = try await storage.exists(rows[index].item)
+                    rows[index].existing = present
+                    rows[index].status = present ? "Will skip — exists" : "Ready to upload"
+                } catch {
+                    if Task.isCancelled { throw CancellationError() }
+                    rows[index].status = "Check failed"; rows[index].failed = true
+                    rows[index].detail = error.localizedDescription
+                    if error is AuthenticationFailure { throw error }
+                    if let failure = error as? ServiceFailure, [401, 403].contains(failure.status) { throw error }
+                }
+            }
+        }
+        try Task.checkCancellation()
+        previewReady = true
+    }
     func preview() {
-        guard folder != nil || !files.isEmpty else { return }
-        let sourceFolder = folder, sourceFiles = files
-        invalidate(); busy = true; message = "Scanning audio files…"
-        let include = includeFolder
+        guard !busy, folder != nil || !files.isEmpty else { return }
+        busy = true; error = nil
         job = Task {
             defer { busy = false; job = nil; activity = "" }
             do {
-                let scan = Task.detached(priority: .userInitiated) {
-                    if !sourceFiles.isEmpty { return try AudioScanner.scan(files: sourceFiles) }
-                    guard let sourceFolder else { throw ArchiveError("Choose your recordings first.") }
-                    return try AudioScanner.scan(folder: sourceFolder, includeFolder: include)
-                }
-                let report = try await withTaskCancellationHandler(operation: { try await scan.value }, onCancel: { scan.cancel() })
-                try Task.checkCancellation()
-                rows = report.items.map { FileRow(item: $0) }; excluded = report.excluded; issues = report.issues
-                if !login.email.isEmpty, let storage {
-                    for index in rows.indices {
-                        try Task.checkCancellation()
-                        activity = "Checking \(index + 1) of \(rows.count): \(rows[index].item.objectName)"
-                        do {
-                            let present = try await storage.exists(rows[index].item)
-                            rows[index].status = present ? "Will skip — exists" : "Ready to upload"
-                        } catch {
-                            if Task.isCancelled { throw CancellationError() }
-                            rows[index].status = "Check failed"; rows[index].failed = true
-                            rows[index].detail = error.localizedDescription
-                            // A global authorization problem should not trigger thousands of repeated requests.
-                            if error is AuthenticationFailure { throw error }
-                            if let failure = error as? ServiceFailure, [401, 403].contains(failure.status) { throw error }
-                        }
-                    }
-                    message = "Dry run complete. No files uploaded. \(rows.filter { $0.status == "Will skip — exists" }.count) already exist."
-                } else {
-                    message = "Local preview complete. Configure a destination, sign in, and preview again to check cloud files."
-                }
-                previewReady = true
-            } catch is CancellationError { message = "Preview cancelled. Run Preview again before uploading." }
-            catch { self.error = error.localizedDescription; message = "Preview stopped. Resolve the error and preview again." }
+                try await prepare()
+                message = login.email.isEmpty || storage == nil ? "Local preview complete. Sign in and choose a bucket to upload." :
+                    "Dry run complete. No files uploaded. \(rows.filter(\.existing).count) already exist."
+            } catch is CancellationError { message = "Preview cancelled. Start upload will prepare your files again." }
+            catch { self.error = error.localizedDescription; message = "Preview stopped. Resolve the error and try again." }
         }
     }
     func upload() {
-        guard previewReady, !login.email.isEmpty, let storage else { return }
-        busy = true; transferred = 0; started = Date(); message = "Uploading to the archive…"
+        guard canStart, let storage else { return }
+        busy = true; error = nil; fatalUploadError = nil
+        let limit = simultaneousUploads
         job = Task {
             let wake = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled], reason: "Uploading archive audio")
-            defer { ProcessInfo.processInfo.endActivity(wake); busy = false; activity = ""; job = nil }
-            for index in rows.indices where !rows[index].finished {
-                if Task.isCancelled { break }
-                rows[index].failed = false; rows[index].detail = ""; rows[index].bytes = 0
-                rows[index].status = "Checking destination…"
-                let item = rows[index].item
-                activity = item.objectName
-                do {
-                    let result = try await storage.upload(item) { [self] update in
-                        await self.update(index: index, progress: update)
-                    }
-                    rows[index].status = result.rawValue; rows[index].finished = true
-                    if result == .existing { rows[index].detail = "An object with this name already exists. It was not changed or compared for audio equivalence." }
-                } catch {
-                    if Task.isCancelled { rows[index].status = "Paused — resume available"; break }
-                    rows[index].failed = true; rows[index].status = "Needs retry"
-                    rows[index].detail = error.localizedDescription
-                    if error is AuthenticationFailure { self.error = error.localizedDescription; break }
-                    if let failure = error as? ServiceFailure, [401, 403].contains(failure.status) { self.error = error.localizedDescription; break }
+            defer {
+                ProcessInfo.processInfo.endActivity(wake)
+                statisticsTask?.cancel(); statisticsTask = nil; sampleStatistics()
+                transferring = false; busy = false; activity = ""; job = nil
+            }
+            do {
+                if !previewReady || rows.isEmpty || rows.allSatisfy(\.finished) { try await prepare() }
+                try Task.checkCancellation()
+                guard issues.isEmpty, !rows.contains(where: { $0.failed && $0.status == "Check failed" }) else {
+                    previewReady = false
+                    throw ArchiveError("Preparation found unreadable paths or failed cloud checks. Review the report and fix them before starting again. No new uploads were started.")
+                }
+                guard !rows.isEmpty else { message = "No eligible audio files found. Nothing uploaded."; return }
+                transferring = true; started = Date(); transferred = 0; statistics = TransferStatistics()
+                message = "Uploading with up to \(limit) simultaneous files…"
+                startStatistics()
+                let pending = rows.indices.filter { !rows[$0].finished }
+                try await BoundedWork.run(pending, limit: limit) { [self] index in
+                    try await self.uploadFile(index: index, storage: storage)
+                }
+                if rows.allSatisfy(\.finished) { message = "Finished. \(finishedCount) files uploaded or safely skipped." }
+                else { message = "Stopped with \(failedCount) file errors. Select a row for details, then Retry / Resume." }
+            } catch {
+                if let fatalUploadError {
+                    self.error = fatalUploadError; message = "Uploads stopped. Resolve the account or permission error, then retry."
+                } else if Task.isCancelled || error is CancellationError {
+                    message = "Cancelled. Completed files are safe; Start or Retry / Resume continues unfinished files."
+                } else {
+                    self.error = error.localizedDescription; message = "Stopped. Resolve the error and try again."
                 }
             }
-            if Task.isCancelled { message = "Cancelled. Completed files are safe. Retry / Resume continues unfinished files." }
-            else if rows.allSatisfy(\.finished) { message = "Finished. \(finishedCount) files uploaded or safely skipped." }
-            else { message = "Stopped with \(failedCount) file errors. Select a row for details, then Retry / Resume." }
+        }
+    }
+    private func uploadFile(index: Int, storage: any ArchiveStorage) async throws {
+        try Task.checkCancellation()
+        guard fatalUploadError == nil else { throw CancellationError() }
+        rows[index].failed = false; rows[index].detail = ""; rows[index].bytes = 0
+        rows[index].status = "Checking destination…"; rows[index].active = true; rows[index].phase = .checking
+        let item = rows[index].item
+        defer { rows[index].active = false; sampleStatistics() }
+        do {
+            let result = try await storage.upload(item, statistics: statistics) { [self] update in
+                await self.update(index: index, progress: update)
+            }
+            rows[index].status = result.rawValue; rows[index].finished = true; rows[index].existing = result == .existing
+            if result == .existing { rows[index].detail = "An object with this name already exists. It was not changed or compared for audio equivalence." }
+        } catch {
+            if Task.isCancelled || error is CancellationError {
+                rows[index].status = "Paused — resume available"; throw CancellationError()
+            }
+            rows[index].failed = true; rows[index].status = "Needs retry"; rows[index].detail = error.localizedDescription
+            if error is AuthenticationFailure || (error as? ServiceFailure).map({ [401, 403].contains($0.status) }) == true {
+                fatalUploadError = error.localizedDescription; login.cancel(); throw error
+            }
         }
     }
     private func update(index: Int, progress: UploadProgress) {
         guard rows.indices.contains(index) else { return }
-        transferred += max(0, progress.bytes - rows[index].bytes)
-        rows[index].bytes = progress.bytes; rows[index].status = progress.message
+        statistics?.confirm(progress.newBytes)
+        rows[index].bytes = progress.bytes; rows[index].status = progress.message; rows[index].phase = progress.phase
+        rows[index].existing = false
     }
+    private func startStatistics() {
+        statisticsTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.sampleStatistics()
+                do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { break }
+            }
+        }
+    }
+    private func sampleStatistics() {
+        guard let statistics else { return }
+        transferSnapshot = statistics.snapshot(remainingBytes: remainingBytes)
+        transferred = transferSnapshot?.sentBytes ?? 0
+        activity = "\(activeCount) active · \(skippedCount) skipped · " + ByteCountFormatter.string(fromByteCount: remainingBytes, countStyle: .file) + " remaining"
+    }
+    func waitForIdle() async { await job?.value }
     func cancel() { job?.cancel(); login.cancel(); message = "Cancelling…" }
     func exportReport() {
         let panel = NSSavePanel(); panel.allowedContentTypes = [.plainText]; panel.nameFieldStringValue = "Media-Archive-upload-report.txt"
@@ -431,8 +528,15 @@ struct ContentView: View {
                 }
                 Text(model.sourceDescription)
                     .foregroundStyle(model.folder == nil && model.files.isEmpty ? .secondary : .primary).lineLimit(2).textSelection(.enabled)
-                Toggle("Include selected folder name", isOn: $model.includeFolder)
-                    .disabled(model.busy || !model.files.isEmpty).onChange(of: model.includeFolder) { _ in model.invalidate(); model.rememberSource() }
+                HStack {
+                    Toggle("Include selected folder name", isOn: $model.includeFolder)
+                        .disabled(model.busy || !model.files.isEmpty).onChange(of: model.includeFolder) { _ in model.invalidate(); model.rememberSource() }
+                    Spacer()
+                    Picker("Simultaneous uploads", selection: $model.simultaneousUploads) {
+                        Text("1").tag(1); Text("2").tag(2); Text("4").tag(4)
+                    }.fixedSize().disabled(model.busy)
+                        .onChange(of: model.simultaneousUploads) { _ in model.rememberSource() }
+                }
                 Text(model.destination).font(.system(.caption, design: .monospaced)).foregroundStyle(.teal).textSelection(.enabled)
                 Text("FLAC · WAV · MP3 only. Hidden files, AppleDouble, REAPER files and symbolic links are excluded.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -458,6 +562,14 @@ struct ContentView: View {
                     .font(.caption).foregroundStyle(.orange)
             }
             VStack(alignment: .leading, spacing: 7) {
+                if model.started != nil {
+                    HStack(spacing: 24) {
+                        Label(model.speedText, systemImage: "speedometer").monospacedDigit()
+                        Label(model.remainingTimeText, systemImage: "clock").monospacedDigit()
+                        Spacer()
+                        Text("\(bytes(model.transferred)) sent this run").font(.caption).foregroundStyle(.secondary)
+                    }.font(.headline)
+                }
                 ProgressView(value: Double(model.accountedBytes), total: Double(max(1, model.totalBytes))).tint(.teal)
                 HStack {
                     Text(model.message).font(.callout)
@@ -466,7 +578,7 @@ struct ContentView: View {
                 }
                 if !model.activity.isEmpty { Text(model.activity).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 if model.started != nil {
-                    Text("\(bytes(model.accountedBytes)) accounted for · existing objects count as finished · progress updates after each 8 MiB chunk")
+                    Text("\(bytes(model.accountedBytes)) accounted for · existing objects count as finished · time remaining is an estimate")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
@@ -477,9 +589,9 @@ struct ContentView: View {
                     Button("Cancel", role: .cancel, action: model.cancel).keyboardShortcut(.cancelAction)
                 } else {
                     Button("Preview (dry run)", action: model.preview).disabled(model.folder == nil && model.files.isEmpty)
-                    Button(model.started == nil ? "Start upload" : "Retry / Resume", action: model.upload)
+                    Button(model.started == nil || model.rows.allSatisfy(\.finished) ? "Start upload" : "Retry / Resume", action: model.upload)
                         .buttonStyle(.borderedProminent).tint(.teal)
-                        .disabled(model.configuration == nil || !model.previewReady || model.rows.isEmpty || model.login.email.isEmpty || model.rows.allSatisfy(\.finished))
+                        .disabled(!model.canStart)
                 }
             }
         }.padding(24).frame(minWidth: 850, minHeight: 750)

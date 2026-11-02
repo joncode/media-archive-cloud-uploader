@@ -88,7 +88,7 @@ extension ArchiveCoreTests {
         do { _ = try await client(http).upload(item) { _ in }; XCTFail("Must reject invalid acknowledgement") }
         catch { XCTAssertTrue(error.localizedDescription.contains("not sent")) }
     }
-    private func loginStore() throws -> MemoryStore {
+    func loginStore() throws -> MemoryStore {
         let store = MemoryStore()
         try store.write("oauth-client", data: Data(#"{"client_id":"test.apps.googleusercontent.com"}"#.utf8))
         try store.write("oauth-login", data: Data(#"{"refreshToken":"test-refresh","email":"engineer@example.test"}"#.utf8))

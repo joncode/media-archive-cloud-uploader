@@ -1,3 +1,15 @@
+# Parallel uploads and transfer reporting — November 2, 2026
+
+Version 1.2.0 (build 5) adds optional Preview, automatic preparation on Start, 1/2/4-file concurrency (default 2), live aggregate speed and estimated remaining time. Existing source filtering, create-only upload preconditions, Keychain namespace and checkpoint encoding are retained.
+
+69 tests passed, zero failures. The 17 new regressions cover automatic preparation and read-only Preview, each concurrency limit, cancellation before/during uploads, global authorization failures, per-file retry isolation, scan-issue blocking, old preferences/checkpoints, correct resumed-byte accounting, shared refresh/sign-out/cancellation behavior, actual overlapping StorageClient transfers, and real URLSession upload-progress callbacks against a temporary localhost server. The localhost server also returns a 308 with a redirect target; the client correctly refuses the redirect. All Google responses are simulated and all audio is synthetic. No live bucket was accessed during this development pass.
+
+Review findings addressed: concurrent token refreshes now share one request; late results after cancellation/sign-out cannot restore credentials; hashing runs off the storage actor; initial saved offsets are excluded from new-byte throughput; late body-progress callbacks are ignored after their request ends; fatal authorization failures cancel/drain active workers before another run can start. Preparation failures remain reportable and do not silently start a partial upload.
+
+The universal arm64/x86_64 build is packaged separately in `dist/1.2.0` so the running 1.1.1 app and previous installer remain untouched. This release remains ad-hoc signed and unnotarized. The user reported the prior version working; actual performance with 1/2/4 workers, live cloud interruption/recovery and ETA behavior on their source drive and connection still require user acceptance testing. No speedup is claimed from the simulated concurrency tests. See TESTING.md.
+
+---
+
 # Public rename — November 1, 2026
 
 Version 1.1.1 (build 4) is named **Media Archive Cloud Uploader**. App windows, Google login return text, report headers, installer names, source modules and build/release scripts use the new name. The existing bundle identifier, Keychain service, Application Support folder and advanced environment variable names are retained for compatibility with existing installations.

@@ -27,6 +27,7 @@ private struct TokenResponse: Decodable {
     private let store: SecretStore
     private let http: HTTPTransport
     private var client: OAuthClient?
+    private var bundledClientNeedsSaving = false
     private var saved: SavedLogin?
     private var accessToken: String?
     private var expiry = Date.distantPast
@@ -37,29 +38,53 @@ private struct TokenResponse: Decodable {
         loginGeneration = UUID(); refreshTask?.cancel(); refreshTask = nil
     }
 
-    init(store: SecretStore = KeychainStore(), http: HTTPTransport = SecureHTTP()) {
+    init(store: SecretStore = KeychainStore(), http: HTTPTransport = SecureHTTP(),
+         bundledClientURL: URL? = Bundle.main.url(forResource: "GoogleOAuthClient", withExtension: "json")) {
         self.store = store; self.http = http
         do {
+            // An existing login belongs to its saved client. Never silently replace that
+            // client with a different one supplied by an app update.
             if let data = try store.read("oauth-client") {
-                client = try JSONDecoder().decode(OAuthClient.self, from: data); configured = true
+                client = try JSONDecoder().decode(OAuthClient.self, from: data)
+                if let data = try store.read("oauth-login") {
+                    saved = try JSONDecoder().decode(SavedLogin.self, from: data); email = saved!.email
+                }
+            } else if let bundledClientURL {
+                client = try Self.readClient(bundledClientURL)
+                bundledClientNeedsSaving = true
+                // An orphaned login without its original client cannot safely be reused.
             }
-            if let data = try store.read("oauth-login") {
-                saved = try JSONDecoder().decode(SavedLogin.self, from: data); email = saved!.email
-            }
-        } catch { storageIssue = error.localizedDescription }
+            configured = client != nil
+        } catch {
+            configured = client != nil
+            storageIssue = error.localizedDescription
+        }
     }
-    func importClient(_ url: URL) throws {
+    static func readClient(_ url: URL) throws -> OAuthClient {
         let data = try LocalInput.read(url)
         guard data.count < 64 * 1024 else { throw ArchiveError("Choose the small Desktop app OAuth JSON file from Google Cloud.") }
         let imported: OAuthClient
         do { imported = try JSONDecoder().decode(ClientFile.self, from: data).installed }
         catch { throw ArchiveError("This is not a Desktop app OAuth configuration. Service account keys and Web clients are not supported.") }
-        guard imported.client_id.hasSuffix(".apps.googleusercontent.com"), !imported.client_id.contains(where: { $0.isWhitespace }) else {
+        guard imported.client_id.hasSuffix(".apps.googleusercontent.com"), !imported.client_id.contains(where: { $0.isWhitespace }),
+              imported.client_id.count > ".apps.googleusercontent.com".count else {
             throw ArchiveError("The OAuth client ID is invalid.")
         }
+        return imported
+    }
+    func importClient(_ url: URL) throws {
+        let imported = try Self.readClient(url)
         try signOut()
         try store.write("oauth-client", data: JSONEncoder().encode(imported))
-        client = imported; configured = true; storageIssue = nil
+        client = imported; bundledClientNeedsSaving = false; configured = true; storageIssue = nil
+    }
+    func persistBundledClientIfNeeded() throws {
+        guard bundledClientNeedsSaving, let client else { return }
+        // A leftover login without a saved client must not become associated with
+        // this bundled client if saving the new login is interrupted.
+        try store.remove("oauth-login")
+        try store.write("oauth-client", data: JSONEncoder().encode(client))
+        bundledClientNeedsSaving = false
     }
     static func random() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
@@ -129,11 +154,14 @@ private struct TokenResponse: Decodable {
               let refresh = tokens.refresh_token else { throw ArchiveError("Google did not return account information and offline access. Try signing in again.") }
         try Task.checkCancellation()
         invalidateRefresh()
+        // Save the bundled client alongside the new login so later updates retain
+        // the exact client associated with this account's refresh token.
+        try persistBundledClientIfNeeded()
         // A different account must never inherit a previous account's resumable capabilities.
         try store.clearUploads()
         let login = SavedLogin(refreshToken: refresh, email: account)
         try store.write("oauth-login", data: JSONEncoder().encode(login))
-        saved = login; email = account; accessToken = tokens.access_token
+        saved = login; email = account; accessToken = tokens.access_token; storageIssue = nil
         expiry = Date().addingTimeInterval(tokens.expires_in - 60)
     }
     func token(forceRefresh: Bool) async throws -> String {

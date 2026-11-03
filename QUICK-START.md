@@ -9,7 +9,7 @@ If upgrading from Bisco Archive Uploader, quit the old app and use **Media Archi
 ## Install and connect
 
 1. Open the disk image and drag **Media Archive Cloud Uploader** to **Applications**. Run it from Applications.
-2. Click **Sign in with Google**. On first use, the app guides you through choosing the Desktop app OAuth JSON supplied by your archive administrator. Then sign in with your own account in the browser.
+2. Click **Sign in with Google** and sign in with your own account in the browser. Preconfigured installers include the app registration, so no JSON import is needed. If you received a generic installer instead, first use will guide you through choosing the Desktop app OAuth JSON supplied by your archive administrator. Allow macOS Keychain access when requested so the app can save your login and resume information.
 3. Choose your destination from **Destination bucket**. The list includes buckets Google allows this account to see. If one is missing, click **Can’t find your bucket?** to search a project or enter a known bucket name.
 4. Your destination and last source folder are remembered privately on this Mac. You do not need a `.env` file. Signing out clears the destination selection.
 
@@ -42,4 +42,4 @@ For “access denied,” have the administrator check the account and bucket per
 
 ## Install an update during an archive job
 
-Let the current job finish, or click Cancel and wait until it stops. Quit the old app before replacing it with the update. Keep the same source, bucket and folder-prefix setting when continuing. Do not sign out just to update: signing out clears saved resume records. Version 1.2.0 retains the existing settings, login and resumable-session formats.
+Let the current job finish, or click Cancel and wait until it stops. Quit the old app before replacing it with the update. Keep the same source, bucket and folder-prefix setting when continuing. Do not sign out just to update: signing out clears saved resume records. Version 1.2.1 retains the existing settings, login and resumable-session formats.

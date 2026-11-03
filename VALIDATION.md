@@ -1,3 +1,11 @@
+# Update — November 3, 2026
+
+Version 1.2.1 adds optional bundled Desktop OAuth configuration for private installers. All 75 tests passed, including fresh-install configuration without Keychain writes, saved-client precedence, orphaned-login isolation, manual override, missing configuration and invalid configuration rejection. The first restricted test run could not open local listeners; the full suite then passed with local networking allowed. Build-time checks verified minimal field output and rejection of Web/service-account configurations.
+
+Universal arm64/x86_64 compilation, ad-hoc signatures, DMG integrity and ZIP-extracted app verification succeeded. The private installer contains only the Desktop client ID and optional client secret from the local export. Public source was checked for the real OAuth values and private destination/source values; none were present. No account tokens, settings or recordings were bundled. No real Google login/upload or user Keychain changes were performed during this pass; the running app was left untouched. A fresh Mac's real Google sign-in remains the handoff acceptance check. This release retains manual concurrency and does not implement the previously discussed automatic tuning or broader Keychain error-handling changes.
+
+---
+
 # Update — November 2, 2026
 
 Version 1.2.0: 69 tests passed with zero failures. The suite includes parallel transfer scheduling and recovery, automatic preparation, live local HTTP upload callbacks, speed/ETA accounting, and compatibility with older settings and resume records. Universal release compilation and package signature/checksum checks succeeded. No app launch, user Keychain change or real Google transfer was performed during this pass; the existing running app was left alone. Real throughput/ETA and venue-network behavior remain acceptance checks.

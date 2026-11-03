@@ -21,6 +21,11 @@ lipo -create "$BUILD_ROOT/MediaArchiveCloudUploader-arm64" \
     "$BUILD_ROOT/MediaArchiveCloudUploader-x86_64" \
     -output "$APP/Contents/MacOS/MediaArchiveCloudUploader"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+# Optional private distribution configuration. Only the Desktop client identity
+# is included, never local settings, user tokens or the original Google export.
+if [[ -n "${GOOGLE_OAUTH_CLIENT_FILE:-}" ]]; then
+    swift "$ROOT/scripts/prepare-oauth.swift" "$GOOGLE_OAUTH_CLIENT_FILE" "$APP/Contents/Resources/GoogleOAuthClient.json"
+fi
 swift "$ROOT/scripts/make-icon.swift" "$BUILD_ROOT/AppIcon.iconset"
 iconutil -c icns "$BUILD_ROOT/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
 # Finder metadata can be inherited when building in an iCloud-synced Documents folder.

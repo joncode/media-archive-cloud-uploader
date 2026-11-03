@@ -1,4 +1,4 @@
-# User acceptance checks — 1.2.0
+# User acceptance checks — 1.2.1
 
 This build is ready for a controlled user trial. Earlier builds have been reported working by the user. The new concurrency, throughput and ETA behavior still needs testing with a real account, source drive and connection. Start with a few copied recordings. Keep your original recordings.
 
@@ -13,7 +13,7 @@ After `bash scripts/distribute.sh`, the repository contains:
 
 The `dist` directory is local and Git-ignored. Cloning or pulling the source from GitHub does not download the installer. Building requires Xcode; using the built app does not.
 
-Version 1.2.0 was built separately in `dist/1.2.0/` so the existing installer and running app could remain untouched. The normal build script defaults to `dist`; set `DIST_DIR` to isolate a build.
+Version 1.2.1 was built separately in `dist/1.2.1/` so the existing installer and running app could remain untouched. The normal build script defaults to `dist`; set `DIST_DIR` to isolate a build.
 
 ## Upgrade without interrupting the current job
 
@@ -22,7 +22,7 @@ Let the old app finish, or click Cancel and wait for it to stop, then quit. Inst
 ## Prepare once
 
 1. Open the DMG and drag the app to Applications. Open it there. This test build is ad-hoc signed and **not notarized**; for a trusted copy, use macOS’s per-app Open Anyway option if offered. Do not disable system security globally.
-2. Click **Sign in with Google**. If this Mac has no app configuration, follow the setup sheet to choose a **Desktop app OAuth client JSON**, not a service-account key. Then sign in in your browser. Existing 1.0.1 users should sign out and sign back in to grant the additional read-only project discovery scope.
+2. Click **Sign in with Google**. On a fresh Mac, a preconfigured installer should open Google sign-in without asking for a JSON file. A generic installer still shows the setup sheet to choose a **Desktop app OAuth client JSON**, not a service-account key. Then sign in in your browser. Existing 1.0.1 users should sign out and sign back in to grant the additional read-only project discovery scope.
 3. Select the intended **Destination bucket**. Confirm the visible name. If automatic discovery fails, check Cloud Resource Manager API enablement and project/bucket listing permissions; use **Can’t find your bucket?** to search a project ID or enter a known bucket name. Do not assume an empty list means no accessible buckets exist.
 4. No `.env` import is required. The app saves choices privately on this Mac. Your older local `.env` remains untouched; explicit import is still available under Setup → Advanced.
 
@@ -56,6 +56,6 @@ Restore Include selected folder name to **off** for the original contents-at-buc
 
 ## Stop and report
 
-Stop the trial for a wrong destination, an overwrite, an unexpected login prompt, a checksum error, a crash, or unreported missing files. Keep the exported report and the exact visible error. Reports include local paths and cloud object names; share them privately and do not commit them to the public repo. Never share OAuth JSON, tokens or resumable session URLs.
+Stop the trial for a wrong destination, an overwrite, an unexpected login prompt, a checksum error, a crash, or unreported missing files. Keep the exported report and the exact visible error. Reports include local paths and cloud object names; share them privately and do not commit them to the public repo. Never share user tokens or resumable session URLs. Share a preconfigured installer or Desktop OAuth JSON only with the intended users.
 
 Before an engineer relies on it unattended, complete the live tests above and test on the engineer’s Mac. Developer ID signing/notarization and clean-machine installation checks are still needed for routine distribution. See RELEASE.md and REVIEW.md.

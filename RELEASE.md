@@ -6,9 +6,22 @@ The provided app is a universal macOS 13+ development build, with an **ad-hoc lo
 
 The DMG is an installer container. The engineer drags the app into Applications. The app ZIP is an alternative distribution container. Source is provided separately. Review VALIDATION.md before sharing it as a production tool.
 
+## Preconfigured private installer
+
+Set `GOOGLE_OAUTH_CLIENT_FILE` to the local Google Desktop app JSON export when building:
+
+```bash
+GOOGLE_OAUTH_CLIENT_FILE='/absolute/path/to/desktop-client.json' \
+DIST_DIR="$PWD/dist/1.2.1" bash scripts/distribute.sh
+```
+
+The build validates the Desktop client shape and writes a minimal `GoogleOAuthClient.json` resource before signing. It includes only `client_id` and optional `client_secret`, not project metadata, bucket names, source folders, user tokens or other exported fields. This is a desktop public-client identity and is readable by recipients; it is not an account login or a service-account key. Keep this preconfigured installer within the intended audience and out of public GitHub releases. The source repository contains only generic support and synthetic test identities.
+
+Omitting the variable produces a generic installer with manual configuration import. Existing Keychain clients/logins take precedence over a bundled client. A fresh installation uses the bundle immediately; completing first sign-in stores its client with the user's own login in Keychain. Google audience and bucket permissions still apply.
+
 ## Trusted release
 
-Use an Apple Developer Program account and a **Developer ID Application** certificate/private key installed in your login Keychain. Keep certificate exports, Apple API keys and local `.env` files and Google JSON configuration outside source control and release artifacts. Choose a bundle identifier under a domain you control before the first public release; maintain that identifier and signing identity for stable Keychain access.
+Use an Apple Developer Program account and a **Developer ID Application** certificate/private key installed in your login Keychain. Keep certificate exports, Apple API keys and local `.env` files outside source control and release artifacts. Google Desktop client configuration may be deliberately bundled for a private handoff as described below; keep the original export out of source control. Choose a bundle identifier under a domain you control before the first public release; maintain that identifier and signing identity for stable Keychain access.
 
 1. Run the tests and live acceptance checks.
 2. Build with the signing identity:
@@ -44,6 +57,6 @@ Apple documents the release process in [Notarizing macOS software](https://devel
 - Verify Google client import, login, refresh after relaunch, permissions errors and sign-out on that machine.
 - Test a real large FLAC upload, interrupt it, relaunch and resume; verify the cloud checksum. Test a same-name existing object and a concurrent creation race.
 - Verify the signed/notarized artifacts after uploading to the distribution service. Share checksums separately when practical.
-- Never distribute the build cache, Keychain exports, local environment configuration, OAuth client configuration, live session URLs, personal reports or local recordings as part of the app/source archive.
+- Never distribute the build cache, Keychain exports, local environment configuration, unapproved OAuth configuration, live session URLs, personal reports or local recordings as part of the app/source archive.
 
 If only a local build is available, Apple’s documented per-app override may be used for a trusted copy: [Open a Mac app from an unknown developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac). Do not instruct the engineer to disable Gatekeeper globally or strip quarantine across the system.

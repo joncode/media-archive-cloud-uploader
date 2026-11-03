@@ -17,3 +17,6 @@ client_secret*.json
 # Exported reports can contain local paths and cloud object names.
 Bisco-upload-report*.txt
 Media-Archive-upload-report*.txt
+
+# Optional private OAuth configuration supplied to release builds.
+GoogleOAuthClient.json
